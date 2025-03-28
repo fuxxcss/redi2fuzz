@@ -1,68 +1,58 @@
 package db
 
 import (
-	"fmt",
 	"os",
+	"log",
 	"bytes",
+	"sync",
 	"strings",
 	"os/exec",
 	"syscall",
 	"strconv"
+
+	"github.com/fuxxcss/redi2fuxx/pkg/fuxx"
 )
 
-fuxxTarget := map[string]bool{
-	"redis":true,
-	"keydb":true,
-	"redis-stack":true,
-}
-
-func StartUp(target string){
+// export 
+func StartUp(target string) {
 
 	var path,port string
 
 	// Fuxx Target (redis, keydb, redis-stack)
-	_,ok := fuxxTarget[target]
+	t,ok := Targets[target]
 	if ok {
-		switch target{
 
-		// redis-server path
-		case "redis", "redis-stack":
-			port = "6379"
-			path = "/usr/local/redis/src/redis-server"
+		// path, port
+		path = t[Path]
+		port = t[Port]
+		
+		// need to startup
+		rdb := SingleRdb(port)
 
-		// keydb-server path
-		case "keydb":
-			port = "6380"
-			path = "/usr/local/keydb/src/keydb-server"
+		alive := rdb.Check_alive()
+		if !alive {
+			startup_core(path,port)
 		}
-
-		StartUp_Core(path,port)
-
+		
 	// target not support 
-	}else { 
-		fmt.Printf("err: %v is not support\n",target)
-		os.Exit(1)
+	}else {
+		log.Fatalf("err: %v is not support\n",target)
 	}
 
 }
 
-func StartUp_Core(path,port string){
-
-	// AFL ENVs
-	AFL_DEBUG := "AFL_DEBUG"
-	AFL_MAP_SIZE := "__afl_map_size"
-	AFL_SHM_ID := "__AFL_SHM_ID"
+// static
+func startup_core(path,port string){
 
 	// cannot find path
 	_,err := os.Stat(path)
 	if err != nil {
-		fmt.Printf("err: %v %v",path,err)
-		os.Exit(1)
+		log.Fatalf("err: %v %v",path,err)
 	}
 
 	// AFL_DEBUG get AFL_MAP_SIZE
 	var stdout bytes.Buffer
-	os.Setenv(AFL_DEBUG,"1")
+	os.Setenv(fuxx.AFL_DEBUG,"1")
 
 	cmd := exec.Command(path)
 	cmd.Stdout = &stdout
@@ -70,63 +60,60 @@ func StartUp_Core(path,port string){
 
 	// cannot run path
 	if err != nil {
-		fmt.Printf("err: %v %v\n",path,err)
-		os.Exit(1)
+		log.Fatalf("err: %v %v\n",path,err)
 	}
 
 	// loop stdout
+	log.Println("[*] Loop Get AFL_MAP_SIZE.")
 	for {
-		if strings.Contains(string(stdout),AFL_MAP_SIZE){
-			break;
+		if strings.Contains(string(stdout),fuxx.AFL_DEBUG_SIZE){
+			break
 		}
 	}
 	cmd.Process.Kill()
 
 	// get AFL_MAP_SIZE
-	var max_size string
-	index := strings.Index(string(stdout),AFL_MAP_SIZE)
+	index := strings.Index(string(stdout),fuxx.AFL_DEBUG_SIZE)
+	shmsize := ""
 	for char := stdout[index] ; char != ',' {
 		if char >= '0' && char <= '9' {
-			max_size += char
+			shmsize += char
 		}
 	}
-
-	shmid := StartUp_Shm(max_size)
 	
-	... TODO Startup_DB
+	// startup shm
+	shm := SingleShm(shmsize)
+
+	// clean up shm
+	shm.Cleanup_Shm()
+
 	// startup db
-	os.Setenv(AFL_DEBUG,"0")
-	os.Setenv(AFL_MAP_SIZE,max_size)
-	os.Setenv(AFL_SHM_ID,shmid)
-	arg1 := "--port " + port
-	arg2 := "&"
-	cmd = exec.Command(path,arg1,arg2)
+	// DB ENVs
+	os.Setenv(fuxx.AFL_DEBUG,"0")
+	os.Setenv(fuxx.AFL_MAP_SIZE,shmsize)
+	os.Setenv(fuxx.AFL_SHM_ID,shm)
+	// DB args
+	args := []string {
+		// port
+		"--port " + port,
+		// process
+		"&",
+	}
+	cmd = exec.Command(path,args...)
 	err := cmd.Run()
+	
+	rdb := SingleRdb(port)
+	alive := rdb.Check_alive()
+
+	// db failed
 	if err != nil {
-		return false
+		log.Fatalf("err: db %v\n",err)
 	}
-	return true
-
-}
-
-func StartUp_Shm(size string) string {
-
-	... TODO
-	// ipcmk 
-	shmkey := uintptr(syscall.IPC_PRIVATE)
-	shmsize := uintptr(strconv.Atoi(max_size))
-	shmflag := uintptr(0666)
-	shmid,_,err := syscall.Syscall(syscall.SYS_SHMGET,shmkey,shmsize,shmflag)
-
-	// ipcmk failed
-	if err != nil {
-		fmt.Printf("err: ipcmk %v\n",err)
-		os.Exit(1)
+	if !alive {
+		log.Fatalln("err: rdb failed.")
 	}
 
-	// ipcmk succeed
-
-	fmt.Printf("[*] Shared Mem ID.%v StartUp.",shmid)
-
-
+	// db succeed
+	log.Printf("[*] DB %v StartUp.\n",path)
+	
 }

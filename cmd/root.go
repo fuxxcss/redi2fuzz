@@ -1,17 +1,19 @@
 package cmd
 
 import (
-	"fmt"
-	"os"
+	"log"
 
 	"github.com/spf13/cobra"
 )
 
-var fuxxMode string
+var (
+	fuxxMode string
+	fuxxTarget string
+)
 
 // rootCmd : default without args
 rootCmd := &cobra.Command{
-	Use:   "redis-fuxx",
+	Use:   "redi2fuxx",
 	Short: "A fuxxing tool for redis.",
 	Long:  `A tool used to fuxx redis-based dbms with gramfree mutation.`,
 }
@@ -20,11 +22,12 @@ rootCmd := &cobra.Command{
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
 
-	rootCmd.PersistentFlags().StringVarP(&fuxxMode, "mode", "m", "dumb", "Fuxx Mode (dumb, gramfree)")
+	rootCmd.PersistentFlags().StringVarP(&fuxxMode, "mode", "m", "dumb", "Fuxx Mode (dumb, gramfree, fagent)")
+	rootCmd.PersistentFlags().StringVarP(&fuxxMode, "target", "t", "redis", "Fuxx Target (redis, keydb, redis-stack)")
 	err := rootCmd.Execute()
+	
 	if err != nil {
-		fmt.Printf("err: %v\n",err)
-		os.Exit(1)
+		log.Fatal(err)
 	}
 	
 }

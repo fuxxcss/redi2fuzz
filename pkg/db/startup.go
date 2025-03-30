@@ -13,8 +13,12 @@ import (
 	"github.com/fuxxcss/redi2fuxx/pkg/fuxx"
 )
 
+const (
+
+)
+
 // export 
-func StartUp(target string) {
+func StartUp(target,tool string) *Shm,error {
 
 	var path,port string
 
@@ -26,12 +30,16 @@ func StartUp(target string) {
 		path = t[Path]
 		port = t[Port]
 		
-		// need to startup
-		rdb := SingleRdb(port)
+		redi := SingleRedi(port)
+		alive := redi.CheckAlive()
 
-		alive := rdb.Check_alive()
+		// need to startup
 		if !alive {
-			startup_core(path,port)
+			return startupCore(path,port,tool),nil
+
+		// already startup
+		}else {
+			return nil,errors.New("Already StartUp.")
 		}
 		
 	// target not support 
@@ -42,7 +50,7 @@ func StartUp(target string) {
 }
 
 // static
-func startup_core(path,port string){
+func startupCore(path,port,tool string) *Shm{
 
 	// cannot find path
 	_,err := os.Stat(path)
@@ -50,13 +58,13 @@ func startup_core(path,port string){
 		log.Fatalf("err: %v %v",path,err)
 	}
 
-	// AFL_DEBUG get AFL_MAP_SIZE
+	// set ENV_DEBUG get map size
 	var stdout bytes.Buffer
-	os.Setenv(fuxx.AFL_DEBUG,"1")
+	os.Setenv(utils.Tools[tool][TOOLS_ENV_DEBUG],"1")
 
-	cmd := exec.Command(path)
-	cmd.Stdout = &stdout
-	err = cmd.Run()
+	debugProc := exec.Command(path)
+	debugProc.Stdout = &stdout
+	err = debugProc.Run()
 
 	// cannot run path
 	if err != nil {
@@ -64,15 +72,15 @@ func startup_core(path,port string){
 	}
 
 	// loop stdout
-	log.Println("[*] Loop Get AFL_MAP_SIZE.")
+	log.Println("[*] Loop Get Debug Size.")
 	for {
-		if strings.Contains(string(stdout),fuxx.AFL_DEBUG_SIZE){
+		if strings.Contains(string(stdout),utils.Tools[tool][TOOLS_ENV_DEBUG_SIZE]){
 			break
 		}
 	}
-	cmd.Process.Kill()
+	debugProc.Process.Kill()
 
-	// get AFL_MAP_SIZE
+	// get debug size
 	index := strings.Index(string(stdout),fuxx.AFL_DEBUG_SIZE)
 	shmsize := ""
 	for char := stdout[index] ; char != ',' {
@@ -85,35 +93,47 @@ func startup_core(path,port string){
 	shm := SingleShm(shmsize)
 
 	// clean up shm
-	shm.Cleanup_Shm()
+	shm.CleanUp()
 
 	// startup db
 	// DB ENVs
-	os.Setenv(fuxx.AFL_DEBUG,"0")
-	os.Setenv(fuxx.AFL_MAP_SIZE,shmsize)
-	os.Setenv(fuxx.AFL_SHM_ID,shm)
+	os.Setenv(utils.Tools[tool][TOOLS_ENV_DEBUG],"0")
+	os.Setenv(utils.Tools[tool][TOOLS_ENV_MAX_SIZE],shm.ShmSize)
+	os.Setenv(utils.Tools[tool][TOOLS_ENV_SHM_ID],shm.ShmID)
 	// DB args
 	args := []string {
 		// port
-		"--port " + port,
-		// process
-		"&",
+		RediSep + " " + port,
+		// daemon
+		RediDeamon,
 	}
-	cmd = exec.Command(path,args...)
-	err := cmd.Run()
+	rediProc = exec.Command(path,args...)
+	err := rediProc.Run()
 	
-	rdb := SingleRdb(port)
-	alive := rdb.Check_alive()
+	redi := SingleRedi(port)
+	alive := redi.CheckAlive()
 
 	// db failed
 	if err != nil {
 		log.Fatalf("err: db %v\n",err)
 	}
 	if !alive {
-		log.Fatalln("err: rdb failed.")
+		log.Fatalln("err: redi failed.")
 	}
 
 	// db succeed
+	redi.Proc = rediProc
 	log.Printf("[*] DB %v StartUp.\n",path)
 	
+}
+
+func ShutDown() {
+
+	// kill redis
+	redi := SingleRedi(nil)
+	redi.Proc.Process.Kill()
+
+	// close shm
+	shm := SingleShm(nil)
+	shm.Close()
 }

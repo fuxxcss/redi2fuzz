@@ -5,35 +5,40 @@ import (
 	"strconv",
 )
 
-type Shm string
+type Shm struct {
+	ShmID string
+	ShmSize string
+}
 
 // global
 var (
-	global_shm Shm
-	mutex_shm sync.Mutex
+	globalShm Shm
+	mutexShm sync.Mutex
 )
 
 // export
-func SingleShm(shmsize string) Shm {
+func SingleShm(shmsize string) *Shm {
 
-	if global_shm == nil {
-		mutex_shm.Lock()
-		defer mutex_shm.Unlock()
-		if global_shm == nil {
-			global_shm = NewShm(shmsize)
+	if globalShm == nil {
+		mutexShm.Lock()
+		defer mutexShm.Unlock()
+		if globalShm == nil {
+			globalShm = NewShm(shmsize)
 		}
 	}
-	return global_shm
+	return globalShm
 }
 
 // export
-func NewShm(shmsize string) Shm {
+func NewShm(shmsize string) *Shm {
+
+	shm := new(Shm)
 
 	// ipcmk 
-	shmkey := uintptr(syscall.IPC_PRIVATE)
-	shmsize := uintptr(strconv.Atoi(shmsize))
-	shmflag := uintptr(0666)
-	shmid,_,err := syscall.Syscall(syscall.SYS_SHMGET,shmkey,shmsize,shmflag)
+	key := uintptr(syscall.IPC_PRIVATE)
+	size := uintptr(strconv.Atoi(shmsize))
+	flag := uintptr(0666)
+	shmid,_,err := syscall.Syscall(syscall.SYS_SHMGET,key,size,flag)
 
 	// ipcmk failed
 	if err != nil {
@@ -41,14 +46,16 @@ func NewShm(shmsize string) Shm {
 	}
 
 	// ipcmk succeed
-	log.Printf("[*] Shared Mem ID.%v StartUp.\n",shmid)
+	log.Printf("[*] Shared Mem ID = %v StartUp, Size = %v.\n",shmid,shmsize)
+	shm.ShmID = shmid
+	shm.ShmSize = shmsize
 
-	return shmid
+	return shm
 
 }
 
 // public
-func (self *Shm) Cleanup_Shm(){
+func (self *Shm) CleanUp(){
 
 	// attach
 	addr,_,err := syscall.Syscall(*self,syscall.SYS_SHMAT,nil,0)
@@ -62,4 +69,15 @@ func (self *Shm) Cleanup_Shm(){
 	// cleanup
 	clear(addr)
 
+}
+
+// public
+func (self *Shm) Close() {
+
+	_, _, err := syscall.Syscall(syscall.SYS_SHMCTL, uintptr(self.ShmID), syscall.IPC_RMID, 0)
+
+	// free shm failed
+	if err != nil {
+		log.Println("err: %v",err)
+	}
 }

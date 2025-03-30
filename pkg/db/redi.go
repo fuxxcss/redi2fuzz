@@ -9,35 +9,40 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// Redi sep
-const Redi_Sep string = "\n"
+// Redi strings
+const (
+	RediSep string = "\n"
+	RediPort string = "--port"
+	RediDeamon string = "&"
+)
 
 // Redi State
-type Redi_State int
+type RediState int
 
 const (
-	REDI_OK  Redi_State = iota
+	REDI_OK  RediState = iota
 	REDI_BAD
 	REDI_CRASH
 )
 
 // Redi Pair
-type Redi_Pair struct {
+type RediPair struct {
 	Key string
 	Field string
 }
 
 // snapshot meta data
-type Snapshot []Redi_Pair
+type Snapshot []RediPair
 
 // global
 var (
-	global_redi *Redi
-	mutex_redi sync.Mutex
+	globalRedi *Redi
+	mutexRedi sync.Mutex
 )
 
 type Redi struct {
 
+	Proc *Cmd
 	snapshot Snapshot
 	client *redis.Client
 	ctx Context
@@ -46,14 +51,14 @@ type Redi struct {
 // export
 func SingleRedi(port string) *Redi {
 
-	if global_redi == nil {
-		mutex_redi.Lock()
-		defer mutex_redi.Unlock()
-		if global_redi == nil {
-			global_redi = Newredi(port)
+	if globalRedi == nil {
+		mutexRedi.Lock()
+		defer mutexRedi.Unlock()
+		if globalRedi == nil {
+			globalRedi = NewRedi(port)
 		}
 	}
-	return global_redi
+	return globalRedi
 }
 
 // export
@@ -68,20 +73,15 @@ func NewRedi(port string) *Redi{
 		DB : 0,
 	})
 	
-	redi.snapshot := make(Snapshot,1)
+	redi.Proc = nil
+	redi.snapshot = make(Snapshot,1)
 	redi.ctx = context.Background()
 
 	return redi 
 }
 
 // public
-func (self *Redi) Close(){
-
-	self.client.Close()
-}
-
-// public
-func (self *Redi) Check_alive() error {
+func (self *Redi) CheckAlive() error {
 
 	// redi state
 	_,err := self.client.Ping().Result()
@@ -118,7 +118,7 @@ func (self *Redi) Execute(command string) Redi_State {
 	if err != nil && err != redis.Nil {
 
 		// execute error
-		if self.Check_alive() {
+		if self.CheckAlive() {
 			state = REDI_BAD
 		
 		// crash
@@ -197,9 +197,9 @@ func (self *Redi) collect(snapshot Snapshot) error {
 
 		// func map
 		fmap := map[string]func(string,Snapshot) error {
-			"hash" : collect_hash,
+			"hash" : collectHash,
 			// "geo" : collect_geo,
-			"stream" : collect_stream,
+			"stream" : collectStream,
 			// "none" : collect_ft,
 			// "TSDB-TYPE" : collect_ts,
 		}
@@ -227,7 +227,7 @@ func (self *Redi) collect(snapshot Snapshot) error {
 
 }
 
-func (self *Redi) collect_hash(key string,snapshot Snapshot) error {
+func (self *Redi) collectHash(key string,snapshot Snapshot) error {
 
 	fields,err := self.client.HKeys(self.ctx,key).Result()
 
@@ -247,7 +247,7 @@ func (self *Redi) collect_hash(key string,snapshot Snapshot) error {
 
 }
 
-func (self *Redi) collect_stream(key string,snapshot Snapshot) error {
+func (self *Redi) collectStream(key string,snapshot Snapshot) error {
 
     entries, err := self.client.XRange(self.ctx,key,"-","+").Result()
 
@@ -268,7 +268,7 @@ func (self *Redi) collect_stream(key string,snapshot Snapshot) error {
 }
 
 /*
-func (self *Redi) collect_lib(snapshot Snapshot) error {
+func (self *Redi) collectLib(snapshot Snapshot) error {
 
 	result, err := self.client.Do(self.ctx, "FUNCTION", "LIST").Result()
 	if err != nil {
@@ -309,7 +309,7 @@ func (self *Redi) collect_lib(snapshot Snapshot) error {
 
 }
 
-func (self *Redi) collect_function(field_slice []Redi_Field,val interface{}){
+func (self *Redi) collectFunction(field_slice []Redi_Field,val interface{}){
 
 	funcs := val.([]interface{})
 

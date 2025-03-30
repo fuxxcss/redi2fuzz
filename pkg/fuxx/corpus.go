@@ -9,13 +9,13 @@ import (
 )
 
 // Command
-type Command map[Command_Feature]interface{}
+type Command map[CommandFeature]interface{}
 
 // Command features
-type Command_Feature int
+type CommandFeature int
 
 const (
-    CMD_TEXT Command_Feature = iota
+    CMD_TEXT CommandFeature = iota
     CMD_TIME 
     CMD_ACTION
 )
@@ -24,26 +24,27 @@ type Testcase struct {
 
     graph *Graph
     weight float
-    hash string
     commands []Command
 }
 
 // corpus max
 const (
-    CPS_THRESHOLD int = 50
-    CPS_MUTATELEN int = 60
+    CORPUS_MINLEN int = 20
+    CORPUS_MAXLEN int = 60
+    CORPUS_THRESHOLD int = 50
 )
 
 // corpus factor
 const (
-    CPS_FACTOR_LEN int = 1
-    CPS_FACTOR_FAILED int = 2
-    CPS_FACTOR_CRASH int = 100
+    CORPUS_FACTOR_LEN int = 1
+    CORPUS_FACTOR_COV int = 1
+    CORPUS_FACTOR_CRASH int = 100
     
-    CPS_FACTOR_KEEP int = 0
-    CPS_FACTOR_CREATE int = 1
-    CPS_FACTOR_DELETE int = 1
-    CPS_FACTOR_MIX int = 2
+    CORPUS_FACTOR_KEEP int = 0
+    CORPUS_FACTOR_CREATE int = 1
+    CORPUS_FACTOR_DELETE int = 1
+    CORPUS_FACTOR_MIX int = 2
+    CORPUS_FACTOR_FAULT int = 2
 )
 
 type Corpus struct {
@@ -53,19 +54,17 @@ type Corpus struct {
 }
 
 // export
-func NewTestcase(testcase,hash string) *Testcase {
+func NewTestcase(testcase string) *Testcase {
 
     test := new(Testcase)
-    test.hash = hash
 
-    // redis split by '\n'
-    slice := strings.Split(testcase,db.Redi_Sep)
+    // redis split 
+    slice := strings.Split(testcase,db.RediSep)
     test.commands = make([]Command,len(slice))
 
     for i,cmd := range slice {
         
         test.commands[i] = make(map[string]int,3)
-
         // text 
         test.commands[i][CMD_TEXT] = cmd
         // time 
@@ -78,20 +77,20 @@ func NewTestcase(testcase,hash string) *Testcase {
 }
 
 // public
-func (self *Testcase) Build_Graph() error {
+func (self *Testcase) BuildGraph() error {
 
     db.
 
 }
 
 // public
-func (self *Testcase) Trim(index int) {
+func (self *Testcase) FaultWeight(index int) {
 
-    delete self.commands[index]
+    self.commands[index][CMD_ACTION] -= CORPUS_FACTOR_BAD
 }
 
 // public
-func (self *Testcase) Update_Weight() {
+func (self *Testcase) UpdateWeight() {
 
 }
 
@@ -99,27 +98,29 @@ func (self *Testcase) Update_Weight() {
 func NewCorpus() *Corpus {
 
     corpus := new(Corpus)
-    corpus.hashset = make(map[string]bool,corpus_threshold)
-    corpus.order = make([]*Testcase,corpus_threshold)
+    corpus.hashset = make(map[string]bool,CORPUS_THRESHOLD)
+    corpus.order = make([]*Testcase,CORPUS_THRESHOLD)
 
     return corpus
 }
 
 // public
-// if exist return ""
-// else     return hash
-func (self *Corpus) Exist(testcase string) string {
+// if exist return nil,err
+// else     return ptr
+func (self *Corpus) Exist(testcase string) *Testcase,error {
 
     // repeat testcase
     sum := md5.Sum([]byte(testcase))
     hash := string(sum)
     _,ok := hashset[hash]
     if ok {
-        return ""
+        return nil,errors.New("Repeat Testcase.")
     }
 
     // new testcase
-    return hash
+    hashset[testcase] = true
+
+    return NewTestcase(testcase),nil
 
 }
 

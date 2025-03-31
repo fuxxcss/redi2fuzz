@@ -11,7 +11,8 @@ var fuxxCmd = &cobra.Command{
 	Use:   "fuxx",
 	Short: "Ready to Fuxx.",
 	Run: func(cmd *cobra.Command, args []string) {
-		fuxx.Fuxx(target,mode)
+		
+		fuxx.Fuxx(fuxxTarget,fuxxMode,fuxxTool)
 	},
 }
 

@@ -1,6 +1,7 @@
 package fuxx
 
 import (
+    "sort",
     "errors"
     "crypto/md5"
     "strings"
@@ -22,6 +23,7 @@ const (
 
 type Testcase struct {
 
+    hash string
     graph *Graph
     weight float
     commands []Command
@@ -38,13 +40,12 @@ const (
 const (
     CORPUS_FACTOR_LEN int = 1
     CORPUS_FACTOR_COV int = 1
-    CORPUS_FACTOR_CRASH int = 100
     
-    CORPUS_FACTOR_KEEP int = 0
-    CORPUS_FACTOR_CREATE int = 1
-    CORPUS_FACTOR_DELETE int = 1
-    CORPUS_FACTOR_MIX int = 2
-    CORPUS_FACTOR_FAULT int = 2
+    CORPUS_FACTOR_KEEP int = 1
+    CORPUS_FACTOR_CREATE int = 2
+    CORPUS_FACTOR_DELETE int = 2
+    CORPUS_FACTOR_MIX int = 3
+    CORPUS_FACTOR_CRASH int = 100
 )
 
 type Corpus struct {
@@ -54,44 +55,50 @@ type Corpus struct {
 }
 
 // export
-func NewTestcase(testcase string) *Testcase {
+func NewTestcase(testcase,hash string) *Testcase {
 
-    test := new(Testcase)
+    testPtr := new(Testcase)
 
     // redis split 
     slice := strings.Split(testcase,db.RediSep)
-    test.commands = make([]Command,len(slice))
+    testPtr.commands = make([]Command,len(slice))
 
-    for i,cmd := range slice {
+    for i,str := range slice {
         
-        test.commands[i] = make(map[string]int,3)
+        testPtr.commands[i] = make(map[string]int,3)
         // text 
-        test.commands[i][CMD_TEXT] = cmd
+        testPtr.commands[i][CMD_TEXT] = str
         // time 
-        test.commands[i][CMD_TIME] = 0
+        testPtr.commands[i][CMD_TIME] = 0
         // action 
-        test.commands[i][CMD_ACTION] = 0
+        testPtr.commands[i][CMD_ACTION] = 0
     }
 
-    return test
+    testPtr.hash = hash
+
+    return testPtr
 }
 
 // public
-func (self *Testcase) BuildGraph() error {
+func (self *Testcase) BuildGraph(index int) error {
 
-    db.
+    redi := db.SingleRedi(nil)
+    create_delete,err = redi.Diff()
+
+	if err != nil {
+		return err
+	}
+
+    ... todo
+
+    return nil
 
 }
 
-// public
-func (self *Testcase) FaultWeight(index int) {
+// public 
+func (self *Testcase) Crash(index int) {
 
-    self.commands[index][CMD_ACTION] -= CORPUS_FACTOR_BAD
-}
-
-// public
-func (self *Testcase) UpdateWeight() {
-
+    self.commands[index][CMD_ACTION] = CORPUS_FACTOR_CRASH
 }
 
 // export
@@ -106,8 +113,8 @@ func NewCorpus() *Corpus {
 
 // public
 // if exist return nil,err
-// else     return ptr
-func (self *Corpus) Exist(testcase string) *Testcase,error {
+// else     return ptr,nil
+func (self *Corpus) AddSet(testcase string) *Testcase,error {
 
     // repeat testcase
     sum := md5.Sum([]byte(testcase))
@@ -118,11 +125,45 @@ func (self *Corpus) Exist(testcase string) *Testcase,error {
     }
 
     // new testcase
-    hashset[testcase] = true
+    hashset[hash] = true
 
-    return NewTestcase(testcase),nil
+    return NewTestcase(testcase,hash),nil
 
 }
+
+// public
+func (self *Corpus) DropSet(testPtr *Testcase) {
+
+    delete(self.hashset[testPtr.hash])
+}
+
+// public
+func (self *Corpus) UpdateWeight(testPtr *Testcase) {
+
+    len := len(testPtr.commands) * CORPUS_FACTOR_LEN
+    actions := len(self.order) * CORPUS_FACTOR_COV
+
+    for _,cmd := range testPtr.commands {
+        actions += cmd[CMD_ACTION]
+    }
+
+    // calc weight 
+    testPtr.weight = actions / len;
+
+    // insert testPtr
+    pos : = sort.Search(len(self.order),func(i int) bool { return self.order[i].weight >= testPtr.weight })
+    self.order = append(self.order)
+    copy(self.order[(pos+1):],self.order[pos:])
+    self.order[pos] = testPtr
+
+    // threshold
+    if len(self.order) > CORPUS_THRESHOLD {
+        self.order = self.order[1:]
+    }
+    
+}
+
+
 
 func (self *Corpus) Select(){}
 

@@ -31,7 +31,7 @@ const (
 	TOOLS_ENV_FAST_CAL
 )
 
-const Tools := map[string]interface{} {
+var Tools = map[string]interface{} {
 	AFL : map[ToolsFeature]interface{} {
 		// exe and args
 		TOOLS_EXE : "afl-fuzz",

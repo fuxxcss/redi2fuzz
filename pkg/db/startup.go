@@ -18,39 +18,30 @@ const (
 )
 
 // export 
-func StartUp(target,tool string) *Shm,error {
+func StartUp(target,tool interface{}) *Shm,error {
 
 	var path,port string
 
-	// Fuxx Target (redis, keydb, redis-stack)
-	t,ok := Targets[target]
-	if ok {
+	// path, port
+	path = target[Path]
+	port = target[Port]
+	
+	redi := SingleRedi(port)
+	alive := redi.CheckAlive()
 
-		// path, port
-		path = t[Path]
-		port = t[Port]
-		
-		redi := SingleRedi(port)
-		alive := redi.CheckAlive()
+	// need to startup
+	if !alive {
+		return startupCore(path,port,tool),nil
 
-		// need to startup
-		if !alive {
-			return startupCore(path,port,tool),nil
-
-		// already startup
-		}else {
-			return nil,errors.New("Already StartUp.")
-		}
-		
-	// target not support 
+	// already startup
 	}else {
-		log.Fatalf("err: %v is not support\n",target)
+		return nil,errors.New("Already StartUp.")
 	}
-
+		
 }
 
 // static
-func startupCore(path,port,tool string) *Shm{
+func startupCore(path,port string,tool interface{}) *Shm{
 
 	// cannot find path
 	_,err := os.Stat(path)
@@ -60,7 +51,7 @@ func startupCore(path,port,tool string) *Shm{
 
 	// set ENV_DEBUG get map size
 	var stdout bytes.Buffer
-	os.Setenv(utils.Tools[tool][TOOLS_ENV_DEBUG],"1")
+	os.Setenv(tool[TOOLS_ENV_DEBUG],"1")
 
 	debugProc := exec.Command(path)
 	debugProc.Stdout = &stdout
@@ -74,14 +65,14 @@ func startupCore(path,port,tool string) *Shm{
 	// loop stdout
 	log.Println("[*] Loop Get Debug Size.")
 	for {
-		if strings.Contains(string(stdout),utils.Tools[tool][TOOLS_ENV_DEBUG_SIZE]){
+		if strings.Contains(string(stdout),tool[utils.TOOLS_ENV_DEBUG_SIZE]){
 			break
 		}
 	}
 	debugProc.Process.Kill()
 
 	// get debug size
-	index := strings.Index(string(stdout),fuxx.AFL_DEBUG_SIZE)
+	index := strings.Index(string(stdout),tool[utils.TOOLS_ENV_DEBUG_SIZE])
 	shmsize := ""
 	for char := stdout[index] ; char != ',' {
 		if char >= '0' && char <= '9' {
@@ -97,9 +88,9 @@ func startupCore(path,port,tool string) *Shm{
 
 	// startup db
 	// DB ENVs
-	os.Setenv(utils.Tools[tool][TOOLS_ENV_DEBUG],"0")
-	os.Setenv(utils.Tools[tool][TOOLS_ENV_MAX_SIZE],shm.ShmSize)
-	os.Setenv(utils.Tools[tool][TOOLS_ENV_SHM_ID],shm.ShmID)
+	os.Setenv(tool[TOOLS_ENV_DEBUG],"0")
+	os.Setenv(tool[TOOLS_ENV_MAX_SIZE],shm.ShmSize)
+	os.Setenv(tool[TOOLS_ENV_SHM_ID],shm.ShmID)
 	// DB args
 	args := []string {
 		// port

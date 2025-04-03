@@ -7,10 +7,10 @@ const (
 	ModeFagent string = "fagent"
 )
 
-const Modes := map[string]interface{} {
-	ModeDumb : true,
-	ModeGramfree : true,
-	ModeFagent : true,
+var Modes = map[string]interface{} {
+	ModeDumb : fuxx.MutateDumb,
+	ModeGramfree : fuxx.MutateGramfree,
+	ModeFagent : fuxx.MutateFagent,
 }
 
 

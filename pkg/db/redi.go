@@ -26,6 +26,7 @@ const (
 )
 
 // Redi Pair
+// different key can have same field name
 type RediPair struct {
 	Key string
 	Field string
@@ -133,8 +134,8 @@ func (self *Redi) Execute(command string) Redi_State {
 
 
 // public
-// [0] create, [1] delete
-func (self *Redi) Diff() ([2]Snapshot,error) {
+// [0] create, [1] delete, [2] others
+func (self *Redi) Diff() ([3]Snapshot,error) {
 
 	new := make(Snapshot,1)
 	err := self.collect(new)
@@ -143,14 +144,16 @@ func (self *Redi) Diff() ([2]Snapshot,error) {
 		return nil,err
 	}
 
-	ret := make([2]Snapshot,1)
+	ret := make([3]Snapshot,1)
 	old := self.snapshot
 
-	for _,pair := range new {
+	for index,pair := range new {
 
 		// create pair
 		if !slices.Contains(old,pair){
 			ret[0] = append(ret[0],pair)
+			// keep others
+			new = slices.Delete(new,index,index+1)
 		}
 	}
 
@@ -161,6 +164,8 @@ func (self *Redi) Diff() ([2]Snapshot,error) {
 			ret[1] = append(ret[1],pair)
 		}
 	}
+
+	ret[2] = new
 
 	return ret,nil
 

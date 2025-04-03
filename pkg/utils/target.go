@@ -15,7 +15,7 @@ const (
 	TARGET_PATH
 )
 
-const Targets := map[string]interface{} {
+var Targets = map[string]interface{} {
 	// Redis
 	Redis : map[TargetFeature]interface{} {
 		TARGET_PATH : "6379",

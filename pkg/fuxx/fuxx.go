@@ -34,7 +34,7 @@ const (
 func Fuxx(target,mode,tool string){
 
 	// Fuxx Tool (afl, honggfuzz)
-	ftool,ok := tool
+	ftool,ok := utils.Tools[tool]
 
 	if !ok {
 		log.Fatalf("err: %v tool is not support\n",tool)
@@ -63,23 +63,23 @@ func Fuxx(target,mode,tool string){
 	}
 	
 	// testcase pipe for ipc
-	testcase_read,testcase_write,err := os.Pipe()
+	testRead,testWrite,err := os.Pipe()
 	if err != nil {
 		log.Fatalf("err: testcase pipe failed %v\n",err)
 	}
-	testcase_pipe := []*os.File {
-		testcase_read,
-		testcase_write 
+	testPipe := []*os.File {
+		testRead,
+		testWrite 
 	}
 
 	// control pipe for ipc
-	ctl_read,ctl_write,err := os.Pipe()
+	ctlRead,ctlWrite,err := os.Pipe()
 	if err != nil {
 		log.Fatalf("err: control pipe failed %v\n",err)
 	}
-	control_pipe := []*os.File {
-		ctl_read,
-		ctl_write
+	ctlPipe := []*os.File {
+		ctlRead,
+		ctlWrite
 	}
 
 	// fuxx with rpipe,wpipe
@@ -102,13 +102,13 @@ func Fuxx(target,mode,tool string){
 	fuxxProc := exec.Command(exe,args...)
 	fuxxProc.ExtraFiles = []*os.File{
 		// ftestcase_R
-		testcase_read,
+		testRead,
 		// ftestcase_W
-		testcase_write,
+		testWrite,
 		// fctl_R
-		ctl_read,
+		ctlRead,
 		// fctl_W
-		ctl_write,
+		ctlWrite,
 	}
 
 	// fuxx envs
@@ -141,46 +141,46 @@ func Fuxx(target,mode,tool string){
 	}
 
 	// succeed
-	chan_exit := make(chan struct{})
-	chan_exit_print := make(chan struct{})
+	chanExit := make(chan struct{})
+	chanExitPrint := make(chan struct{})
 
-	go signal_ctl(chan_exit)
-	go fuxx_print(fuxxer,chan_exit,chan_exit_print)
-	go fuxx_server(ftarget,ftool,fmode,testcase_pipe,control_pipe)
+	go signalCtl(chanExit)
+	go fuxxPrint(fuxxProc,chanExit,chanExitPrint)
+	go fuxxServer(ftarget,ftool,fmode,testPipe,ctlPipe)
 
 	// exit
-	<-chan_exit_print
+	<-chanExitPrint
 		
 }
 
 // static
-func signal_ctl(chan_exit chan<- struct{}){
+func signalCtl(chanExit chan<- struct{}){
 
-	chan_sig := make(chan os.Signal,1)
+	chanSig := make(chan os.Signal,1)
 	signal.Notify(chan_sig, os.Interrupt, syscall.SIGTERM)
-	<-chan_sig
+	<-chanSig
 
 	log.Println("[*] Fuxx Proc is Killed.")
-	chan_exit <- struct{}{}
+	chanExit <- struct{}{}
 
 }
 
 // static
-func fuxx_print(fuxxer *exec.Cmd,chan_exit <-chan struct{},chan_exit_print chan<- struct{}){
+func fuxxPrint(fuxxProc *exec.Cmd,chanExit <-chan struct{},chanExitPrint chan<- struct{}){
 
 	// AFL_Print is exit
-	defer exit_print_chan <- struct{}{}
+	defer chanExitPrint <- struct{}{}
 
 	for {
 		select {
 		
 		// chan exit
-		case <-chan_exit:
+		case <-chanExit:
 			log.Println("[*] Fuxx Printer exit.")
 			return
 		
 		default:
-			stdout,err := fuxxer.StdoutPipe()
+			stdout,err := fuxxProc.StdoutPipe()
 	
 			// stdout failed
 			if err != nil {
@@ -195,7 +195,7 @@ func fuxx_print(fuxxer *exec.Cmd,chan_exit <-chan struct{},chan_exit_print chan<
 }
 
 // static
-func fuxx_server(target,tool,mode interface{},tpipe,cpipe []*os.File){
+func fuxxServer(target,tool,mode interface{},tpipe,cpipe []*os.File){
 
 	// init corpus
 	corpus := NewCorpus()
@@ -249,7 +249,7 @@ func fuxx_server(target,tool,mode interface{},tpipe,cpipe []*os.File){
 				-- okCnt
 
 			// command crash
-			case db.fserver_ERR:
+			case db.FSERVER_ERR:
 				file,err := os.OpenFile(hash,os.O_CREATE | os.O_WRONLY | os.O_TRUNC,0664)
 				crash := "[*] Found a crash :)"
 

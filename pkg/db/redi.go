@@ -110,7 +110,7 @@ func (self *Redi) CleanUp() error {
 }
 
 // public
-func (self *Redi) Execute(command string) Redi_State {
+func (self *Redi) Execute(command string) RediState {
 
 	state := REDI_OK
 	_,err := self.client.Do(self.ctx,command)

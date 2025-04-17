@@ -17,10 +17,10 @@ import (
 
 // Fuxxer Server File
 const (
-	FTESTCASE_R int = iota +  3
-	FTESTCASE_W
-	FCTL_R
-	FCTL_W
+	FDRIVER_R int = iota +  3
+	FDRIVER_W
+	FMUTATOR_R
+	FMUTATOR_W
 )
 
 // Fuxxer Server phone string
@@ -31,20 +31,13 @@ const (
 )
 
 // export
-func Fuxx(target,mode,tool string){
+func Fuxx(target,tool string){
 
 	// Fuxx Tool (afl, honggfuzz)
 	ftool,ok := utils.Tools[tool]
 
 	if !ok {
 		log.Fatalf("err: %v tool is not support\n",tool)
-	}
-
-	// Fuxx Mode (dumb, gramfree, fagent)
-	fmode,ok := utils.Modes[mode] 
-
-	if !ok {
-		log.Fatalf("err: %v mode is not support\n",mode)
 	}
 
 	// Fuxx Target (redis, keydb, redis-stack)
@@ -62,24 +55,24 @@ func Fuxx(target,mode,tool string){
 		log.Printf("err: %v",err)
 	}
 	
-	// testcase pipe for ipc
-	testRead,testWrite,err := os.Pipe()
+	// driver pipe for ipc
+	dRead,dWrite,err := os.Pipe()
 	if err != nil {
 		log.Fatalf("err: testcase pipe failed %v\n",err)
 	}
-	testPipe := []*os.File {
-		testRead,
-		testWrite 
+	dPipe := []*os.File {
+		dRead,
+		dWrite
 	}
 
-	// control pipe for ipc
-	ctlRead,ctlWrite,err := os.Pipe()
+	// mutator pipe for ipc
+	mRead,mWrite,err := os.Pipe()
 	if err != nil {
 		log.Fatalf("err: control pipe failed %v\n",err)
 	}
-	ctlPipe := []*os.File {
-		ctlRead,
-		ctlWrite
+	mPipe := []*os.File {
+		mRead,
+		mWrite
 	}
 
 	// fuxx with rpipe,wpipe
@@ -101,14 +94,12 @@ func Fuxx(target,mode,tool string){
 
 	fuxxProc := exec.Command(exe,args...)
 	fuxxProc.ExtraFiles = []*os.File{
-		// ftestcase_R
-		testRead,
-		// ftestcase_W
-		testWrite,
-		// fctl_R
-		ctlRead,
-		// fctl_W
-		ctlWrite,
+		// driver pipe
+		dRead,
+		dWrite,
+		// mutator pipe
+		mRead,
+		mWrite,
 	}
 
 	// fuxx envs
@@ -121,7 +112,7 @@ func Fuxx(target,mode,tool string){
 	// custom flag env
 	os.Setenv(ftool[utils.TOOLS_ENV_CUSTOM_FLAG],"1")
 	// custom path env
-	os.Setenv(ftool[utils.TOOLS_ENV_CUSTOM_PATH],"build/libcustom.so")
+	os.Setenv(ftool[utils.TOOLS_ENV_CUSTOM_PATH],"build/libmutator.so")
 	// skip cpufreq env
 	os.Setenv(ftool[utils.TOOLS_ENV_SKIP_CPUFREQ],"1")
 	// skip bin check env
@@ -146,7 +137,7 @@ func Fuxx(target,mode,tool string){
 
 	go signalCtl(chanExit)
 	go fuxxPrint(fuxxProc,chanExit,chanExitPrint)
-	go fuxxServer(ftarget,ftool,fmode,testPipe,ctlPipe)
+	go fuxxServer(ftarget,ftool,dPipe,mPipe)
 
 	// exit
 	<-chanExitPrint
@@ -195,46 +186,57 @@ func fuxxPrint(fuxxProc *exec.Cmd,chanExit <-chan struct{},chanExitPrint chan<- 
 }
 
 // static
-func fuxxServer(target,tool,mode interface{},tpipe,cpipe []*os.File){
+func fuxxServer(ftarget,ftool interface{},dPipe,mPipe []*os.File){
 
 	// init corpus
 	corpus := NewCorpus()
 
 	// fuxx loop
 	for {
+		// phone driver: tool
+		dPipe[1].WriteString(tool)
+		
+		io.ReadAll(dPipe[0])
+
+		// phone driver: port
+		dPipe[1].WriteString(ftarget[TARGET_PORT])
 
 		// read testcase from driver
-		recv,err := io.ReadAll(tpipe[0])
+		recv,err := io.ReadAll(dPipe[0])
+
 		if err != nil {
 			log.Printf("err: Fuxx Server read %v.",err)
 
 			// phone driver: err
-			cpipe[1].WriteString(FSERVER_ERR)
+			dPipe[1].WriteString(FSERVER_ERR)
 			return
 		}
 
 		// phone driver: bad
 		testcase,err := corpus.AddSet(recv)
+
 		if err != nil {
 
 			log.Printf("bad: %v\n",err)
-			cpipe[1].WriteString(FSERVER_BAD)
+			dPipe[1].WriteString(FSERVER_BAD)
 			continue
 		}
 
 		// phone driver: ok
-		cpipe[1].WriteString(db.FSERVER_OK)
+		dPipe[1].WriteString(db.FSERVER_OK)
 		
 		// fuxx command loop
 		okCnt := len(testcase.commands)
 		
 		for index,_ : range len(testcase.commands){
-			recv,err = io.ReadAll(cpipe[0])
+
+			recv,err = io.ReadAll(dPipe[0])
+
 			if err != nil {
 				log.Printf("err: Fuxx Server read %v.",err)
 
 				// phone driver: err
-				cpipe[1].WriteString(FSERVER_ERR)
+				dPipe[1].WriteString(FSERVER_ERR)
 				return
 			}
 
@@ -265,13 +267,13 @@ func fuxxServer(target,tool,mode interface{},tpipe,cpipe []*os.File){
 				file.WriteString(recv)
 
 				// restart
-				db.StartUp(target,tool)
+				db.StartUp(ftarget,ftool)
 
 				testcase.Crash(index)
 			}
 
 			// phone driver: ok
-			cpipe[1].WriteString(FSERVER_OK)
+			dPipe[1].WriteString(FSERVER_OK)
 
 		}
 
@@ -284,11 +286,11 @@ func fuxxServer(target,tool,mode interface{},tpipe,cpipe []*os.File){
 			corpus.UpdateWeight(testcase)
 		}
 
-		// mutate 
-		mutated := mode()
+		var mutated string
 
-		// write testcase to fuxxer
-		tpipe[1].WriteString(mutated)
+		mutated = corpus.Mutate()
 
+		// write testcase to mutator
+		mPipe[1].WriteString(mutated)
 	}
 }

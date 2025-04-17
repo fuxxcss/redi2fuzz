@@ -23,7 +23,6 @@ rootCmd := &cobra.Command{
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
 
-	rootCmd.PersistentFlags().StringVarP(&fuxxMode, "mode", "m", "dumb", "Fuxx Mode (dumb, gramfree, fagent)")
 	rootCmd.PersistentFlags().StringVarP(&fuxxTarget, "target", "t", "redis", "Fuxx Target (redis, keydb, redis-stack)")
 	rootCmd.PersistentFlags().StringVarP(&fuxxBase, "base", "b", "afl", "Fuxx Base (afl, honggfuzz)")
 	err := rootCmd.Execute()

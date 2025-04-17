@@ -7,12 +7,12 @@ import (
 )
 
 // fuxxCmd fuxx redis
-var fuxxCmd = &cobra.Command{
+var fuxxCmd = &cobra.Command {
 	Use:   "fuxx",
 	Short: "Ready to Fuxx.",
 	Run: func(cmd *cobra.Command, args []string) {
 		
-		fuxx.Fuxx(fuxxTarget,fuxxMode,fuxxTool)
+		fuxx.Fuxx(fuxxTarget,fuxxTool)
 	},
 }
 

@@ -12,6 +12,8 @@ import (
 // Redi strings
 const (
 	RediSep string = "\n"
+	RediTokenSep string = " "
+	RediStrSep string = "\""
 	RediPort string = "--port"
 	RediDeamon string = "&"
 )

@@ -290,5 +290,99 @@ func (self *Graph) Match(graph *Graph) string,bool {
     }
     
     return true
-    
 }
+
+func MutateStr(str string) string {
+
+    item := rand.Intn(len(InterestingStr))
+    chosen := InterestingStr[item]
+
+    switch item {
+
+    // empty
+    case InterestEmpty:
+        return chosen
+
+    // null, terminal, hex, short str
+    case InterestNULL,InterestTerminal,InterestHex,InterestShort:
+        return append(str,chosen)
+
+    // special
+    case InterestSpecial:
+        special = rand.Intn(len(chosen))
+        return append(str,chosen[special])
+    }
+
+}
+
+// key, field mutate
+func (self *Graph) MutateGraph() {
+
+    len := len(self.sliceV)
+
+    for i := 0; i <= len ; i *= 2 {
+
+        index := rand.Intn(len)
+        vertex := self.sliceV[index]
+    
+        // only mutate key, field, avoid token mutate
+        if vertex.Type != cmdVertex && !strings.Contains(vertex.Data,db.RediStrSep){
+            
+            mutatedData := MutateStr(vertex.Data)
+            self.cmdV.Data = strings.Replace(self.cmdV.Data,vertex.Data,mutatedData,-1)
+            vertex.Data = mutatedData
+        }
+    }
+
+}
+
+// str, int mutate
+func MutateToken(cmdStr string) string {
+
+    sliceToken := strings.Split(self.cmdV.Data,db.RediTokenSep)
+
+    for i,token := range sliceToken {
+
+        // int mutate
+        _,err := strconv.Atoi(token)
+
+        if err == nil {
+
+            chosen := rand.Intn(len(InterestingInt))
+            sliceToken[i] = InterestingInt[chosen]
+        }
+
+        // str mutate
+        sliceStr := strings.Split(token,db.RediStrSep)
+
+        if len(sliceStr) >= 3 {
+
+            item := rand.Intn(len(InterestingStr))
+
+            sliceStr[1] = MutateStr(item,sliceStr[1])
+
+            mutatedStr := ""
+
+            // assemble
+            for _,str := range sliceStr {
+                
+                mutatedStr += str + db.RediStrSep
+            }
+
+            sliceToken[i] = mutatedStr
+        }
+    }
+
+    // assemble
+    mutatedToken := ""
+
+    for _, token := range sliceToken {
+
+        mutatedToken += token + db.RediTokenSep
+    }
+
+    return mutatedToken
+
+}
+
+

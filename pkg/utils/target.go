@@ -18,8 +18,8 @@ const (
 var Targets = map[string]interface{} {
 	// Redis
 	Redis : map[TargetFeature]interface{} {
-		TARGET_PATH : "6379",
-		TARGET_PORT : "/usr/local/redis/src/redis-server",
+		TARGET_PORT : "6379",
+		TARGET_PATH : "/usr/local/redis/src/redis-server",
 	},
 	// KeyDB
 	KeyDB : map[TargetFeature]interface{} {

@@ -9,8 +9,6 @@ import (
 	"os/exec",
 	"syscall",
 	"strconv"
-
-	"github.com/fuxxcss/redi2fuxx/pkg/fuxx"
 )
 
 const (

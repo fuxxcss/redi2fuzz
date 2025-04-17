@@ -62,10 +62,10 @@ func NewTestcase(testcase,hash string) *Testcase {
     testPtr := new(Testcase)
 
     // redis split 
-    slice := strings.Split(testcase,db.RediSep)
-    testPtr.commands = make([]Command,len(slice))
+    sliceStr := strings.Split(testcase,db.RediSep)
+    testPtr.commands = make([]Command,len(sliceStr))
 
-    for i,str := range slice {
+    for i,str := range sliceStr {
         
         testPtr.commands[i] = make(map[string]int,3)
         // text 
@@ -225,5 +225,54 @@ func (self *Corpus) Select() *Testcase,int{
 
 }
 
+func (self *Corpus) Mutate() string {
 
+	rand.Seed(time.Now().UnixNano())
 
+	// mutated len
+	len := rand.Intn(CORPUS_MAXLEN - CORPUS_MINLEN) + CORPUS_MINLEN
+	mutated := ""
+
+	sliceGraph := make([]*Graph,1)
+	for i := 0 ; i < len ; ++ i {
+
+		// select one command
+		testPtr,cmdIndex := self.Select()
+		graph := testPtr.graph[cmdIndex]
+
+		command := testPtr.commands[cmdIndex][CMD_TEXT]
+
+		// match command
+		if len(graph.cmdV.Prev) {
+
+			isMatched := false
+
+			for _,g := range sliceGraph {
+
+				// match succeed
+				if isMatched = graph.Match(g) ; isMatched {
+					break
+				}
+			}
+
+			// match failed
+			if !isMatched {
+				continue
+			}
+
+		}else {
+
+            // mutate graph
+            graph.MutateGraph()
+        }
+
+        // mutate str, int
+        graph.cmdV.Data = MutateToken(graph.cmdV.Data)
+
+		sliceGraph = append(sliceGraph,graph)
+		mutated += graph.cmdV.Data + RediSep
+	}
+
+	return mutated
+
+}

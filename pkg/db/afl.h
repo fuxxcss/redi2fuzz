@@ -12,22 +12,22 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
-#include "afl/types.h"
+#include <afl/types.h>
+#include <afl/config.h>
 #include "afl/afl-fuzz.h"
-#include "afl/afl-mutations.h"
 #ifndef _AFL_H_
 #define _AFL_H_
 
 // Fork server logic. 
 void afl_forkserver_start(void) {
 
-	u8 tmp[4] = {0, 0, 0, 0};
+	uint8_t tmp[4] = {0, 0, 0, 0};
   
    /* Phone home and tell the parent that we're OK. */
 	write(FORKSRV_FD + 1, tmp, 4);
 }
   
-size_t afl_next_testcase(u8 *buf, size_t max_len) {
+size_t afl_next_testcase(uint8_t *buf, size_t max_len) {
 
 	size_t status, res = 0xffffff;
 
@@ -48,20 +48,6 @@ void afl_end_testcase(void) {
 	size_t waitpid_status = 0xffffff;
 
 	if (write(FORKSRV_FD + 1, &waitpid_status, 4) != 4) exit(1);
-}
-
-u8 *afl_mutate_dict(afl_state_t *afl,u8 *buf,size_t len) {
-
-	u32 use_extra = rand_below(afl, afl->extras_cnt);
-
-    u32 extra_len = afl->extras[use_extra].len;
-
-    memcpy(buf, afl->extras[use_extra].data, extra_len);
-
-	for (int i = 0; i < len - extra_len; ++i){
-		buf[extra_len + i] = (u8)" ";
-	}
-
 }
 
 #endif

@@ -1,9 +1,12 @@
 package fuxx
 
-type InterestingStrType int
+import (
+	"strings"
+)
 
+// interest
 const (
-	InterestEmpty InterestingStrType = iota
+	InterestEmpty int = iota
 	InterestNULL
 	InterestTerminal
 	InterestHex
@@ -13,12 +16,12 @@ const (
 
 // interesting strings
 var	InterestingStr = []string {
-	"", 			// empty
-	"\x00",			// null
-	"\r",			// terminal
-	"\xff\xfe",		// hex
-	"\";+-*>([",	// special
-	"a"*256, 		// short str
+	"", 					 // empty
+	"\x00",					 // null
+	"\r",					 // terminal
+	"\xff\xfe",				 // hex
+	"\";+-*>([",			 // special
+	strings.Repeat("a",256), // short str
 }
 
 // interesting ints

@@ -1,28 +1,25 @@
 package db
 
 import (
-	"os",
-	"log",
-	"bytes",
-	"sync",
-	"strings",
-	"os/exec",
-	"syscall",
-	"strconv"
-)
+	"os"
+	"log"
+	"bytes"
+	"errors"
+	"strings"
+	"os/exec"
+	"regexp"
 
-const (
-
+	"github.com/fuxxcss/redi2fuxx/pkg/utils"
 )
 
 // export 
-func StartUp(target,tool interface{}) *Shm,error {
+func StartUp(target utils.TargetsType,tool utils.ToolsType) (*Shm,error) {
 
 	var path,port string
 
 	// path, port
-	path = target[Path]
-	port = target[Port]
+	path = target[utils.TARGET_PATH]
+	port = target[utils.TARGET_PORT]
 	
 	redi := SingleRedi(port)
 	alive := redi.CheckAlive()
@@ -39,7 +36,7 @@ func StartUp(target,tool interface{}) *Shm,error {
 }
 
 // static
-func startupCore(path,port string,tool interface{}) *Shm{
+func startupCore(path,port string,tool utils.ToolsType) *Shm {
 
 	// cannot find path
 	_,err := os.Stat(path)
@@ -49,7 +46,7 @@ func startupCore(path,port string,tool interface{}) *Shm{
 
 	// set ENV_DEBUG get map size
 	var stdout bytes.Buffer
-	os.Setenv(tool[TOOLS_ENV_DEBUG],"1")
+	os.Setenv(tool[utils.TOOLS_ENV_DEBUG],"1")
 
 	debugProc := exec.Command(path)
 	debugProc.Stdout = &stdout
@@ -60,23 +57,24 @@ func startupCore(path,port string,tool interface{}) *Shm{
 		log.Fatalf("err: %v %v\n",path,err)
 	}
 
-	// loop stdout
-	log.Println("[*] Loop Get Debug Size.")
+	// deal with stdout
+	log.Println("[*] Get Debug Size.")
+	var originStr string
+	toMatch := tool[utils.TOOLS_ENV_DEBUG_SIZE]
+
 	for {
-		if strings.Contains(string(stdout),tool[utils.TOOLS_ENV_DEBUG_SIZE]){
+		originStr = stdout.String()
+		if strings.Contains(originStr,toMatch) {
 			break
 		}
 	}
 	debugProc.Process.Kill()
 
 	// get debug size
-	index := strings.Index(string(stdout),tool[utils.TOOLS_ENV_DEBUG_SIZE])
-	shmsize := ""
-	for char := stdout[index] ; char != ',' {
-		if char >= '0' && char <= '9' {
-			shmsize += char
-		}
-	}
+	re := regexp.MustCompile(toMatch + `=(\S+)`)
+	isMatch := re.FindStringSubmatch(originStr)
+
+	shmsize := isMatch[1]
 	
 	// startup shm
 	shm := SingleShm(shmsize)
@@ -86,9 +84,9 @@ func startupCore(path,port string,tool interface{}) *Shm{
 
 	// startup db
 	// DB ENVs
-	os.Setenv(tool[TOOLS_ENV_DEBUG],"0")
-	os.Setenv(tool[TOOLS_ENV_MAX_SIZE],shm.ShmSize)
-	os.Setenv(tool[TOOLS_ENV_SHM_ID],shm.ShmID)
+	os.Setenv(tool[utils.TOOLS_ENV_DEBUG],"0")
+	os.Setenv(tool[utils.TOOLS_ENV_MAX_SIZE],shm.ShmSize)
+	os.Setenv(tool[utils.TOOLS_ENV_SHM_ID],shm.ShmID)
 	// DB args
 	args := []string {
 		// port
@@ -96,8 +94,8 @@ func startupCore(path,port string,tool interface{}) *Shm{
 		// daemon
 		RediDeamon,
 	}
-	rediProc = exec.Command(path,args...)
-	err := rediProc.Run()
+	rediProc := exec.Command(path,args...)
+	err = rediProc.Run()
 	
 	redi := SingleRedi(port)
 	alive := redi.CheckAlive()
@@ -113,16 +111,18 @@ func startupCore(path,port string,tool interface{}) *Shm{
 	// db succeed
 	redi.Proc = rediProc
 	log.Printf("[*] DB %v StartUp.\n",path)
+
+	return shm
 	
 }
 
 func ShutDown() {
 
 	// kill redis
-	redi := SingleRedi(nil)
+	redi := SingleRedi("")
 	redi.Proc.Process.Kill()
 
 	// close shm
-	shm := SingleShm(nil)
+	shm := SingleShm("")
 	shm.Close()
 }

@@ -2,8 +2,6 @@ package main
 
 /*
 #include "afl/afl-fuzz.h"
-#include "afl/afl-mutations.h"
-
 */
 import "C"
 
@@ -16,7 +14,7 @@ import (
 
 // Fuxxer Server File
 const (
-	FDRIVER_R int = iota +  3
+	FDRIVER_R uintptr = iota +  3
 	FDRIVER_W
 	FMUTATOR_R
 	FMUTATOR_W
@@ -71,7 +69,6 @@ func afl_custom_fuzz(unused *int,buf *C.uint8_t,buf_size int,out_buf **C.uint8_t
 add_buf *uint8,add_buf_size int,max_size int) int {
     
     pipeR := os.NewFile(FMUTATOR_R, "Read")
-    pipeW := os.NewFile(FMUTATOR_W, "Write")
 
     // read testcase
     testcase,err := io.ReadAll(pipeR)
@@ -80,7 +77,7 @@ add_buf *uint8,add_buf_size int,max_size int) int {
         log.Fatalln("fuxxer io failed")
     }
 
-    *out_buf = (*C.uint8_t)(unsafe.Pointer(C.CString(testcase)))
+    *out_buf = (*C.uint8_t)(unsafe.Pointer(C.CString(string(testcase))))
 
     return len(testcase)
 }

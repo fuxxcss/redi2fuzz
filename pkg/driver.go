@@ -1,13 +1,24 @@
 package main
 
+/*
+#include <stdint.h>
+*/
+import "C"
+
 import (
+	"io"
+	"os"
 	"log"
+	"bytes"
+	"unsafe"
+	"strings"
+
 	"github.com/fuxxcss/redi2fuxx/pkg/db"
 )
 
 // Fuxxer Server File
 const (
-	FDRIVER_R int = iota +  3
+	FDRIVER_R uintptr = iota +  3
 	FDRIVER_W
 	FMUTATOR_R
 	FMUTATOR_W
@@ -32,7 +43,7 @@ func main(){
 
 	tool,err := io.ReadAll(pipeR)
 
-	if !err { 
+	if err != nil { 
 		log.Fatalln("fuxxer io failed")
 	}
 
@@ -40,12 +51,12 @@ func main(){
 
 	port,err := io.ReadAll(pipeR)
 
-	if !err { 
+	if err != nil { 
 		log.Fatalln("fuxxer io failed")
 	}
 
 	// init FIO
-	fio := SingleFIO(tool)
+	fio := db.SingleFIO(string(tool))
 
 	// start forkserver
 	fio.Start()
@@ -56,15 +67,15 @@ func main(){
 	for {
 
 		// clean up database
-		redi := db.SingleRedi(port)
+		redi := db.SingleRedi(string(port))
 		err := redi.CleanUp()
 
-		if !err { 
+		if err != nil { 
 			log.Fatalln("clean up failed")
 		}
 		
 		// get one testcase
-		length := fio.Read(&buffer[0],MaxSize)
+		length := fio.Read((*db.Cuint8)(unsafe.Pointer(&buffer[0])),db.Csize(MaxSize))
 
 		if length <= 0 { 
 			log.Fatalln("next testcase failed")
@@ -77,12 +88,13 @@ func main(){
 		pipeW.WriteString(testcase)
 		
 		recv,err := io.ReadAll(pipeR)
+		recvStr := string(recv)
 
-		if err != nil || recv == FSERVER_ERR {
+		if err != nil || recvStr == FSERVER_ERR {
 			log.Fatalln("fuxxer io failed")
 		}
 
-		if recv == FSERVER_BAD {
+		if recvStr == FSERVER_BAD {
 
 			fio.Write()
 			continue
@@ -96,11 +108,12 @@ func main(){
 
 			state = redi.Execute(command)
 
-			pipeW.WriteString(state)
+			pipeW.WriteString(string(state))
 
-			recv,err := io.ReadAll(fcRead)
+			recv,err := io.ReadAll(pipeR)
+			recvStr := string(recv)
 
-			if err != nil || recv == FSERVER_ERR {
+			if err != nil || recvStr == FSERVER_ERR {
 				log.Fatalln("fuxxer io failed")
 			}
 		}

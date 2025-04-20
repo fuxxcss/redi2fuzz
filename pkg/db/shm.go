@@ -1,8 +1,10 @@
 package db
 
 import (
-	"syscall",
-	"strconv",
+	"log"
+	"sync"
+	"strconv"
+	"golang.org/x/sys/unix"
 )
 
 type Shm struct {
@@ -12,7 +14,7 @@ type Shm struct {
 
 // global
 var (
-	globalShm Shm
+	globalShm *Shm
 	mutexShm sync.Mutex
 )
 
@@ -34,11 +36,9 @@ func NewShm(shmsize string) *Shm {
 
 	shm := new(Shm)
 
-	// ipcmk 
-	key := uintptr(syscall.IPC_PRIVATE)
-	size := uintptr(strconv.Atoi(shmsize))
-	flag := uintptr(0666)
-	shmid,_,err := syscall.Syscall(syscall.SYS_SHMGET,key,size,flag)
+	// ipcmk
+	size,_ := strconv.Atoi(shmsize)
+	id, err := unix.SysvShmGet(unix.IPC_PRIVATE,size,0666)
 
 	// ipcmk failed
 	if err != nil {
@@ -46,7 +46,10 @@ func NewShm(shmsize string) *Shm {
 	}
 
 	// ipcmk succeed
-	log.Printf("[*] Shared Mem ID = %v StartUp, Size = %v.\n",shmid,shmsize)
+	log.Printf("[*] Shared Mem ID = %v StartUp, Size = %v.\n",id,shmsize)
+
+	shmid := strconv.Itoa(id)
+
 	shm.ShmID = shmid
 	shm.ShmSize = shmsize
 
@@ -58,13 +61,14 @@ func NewShm(shmsize string) *Shm {
 func (self *Shm) CleanUp(){
 
 	// attach
-	addr,_,err := syscall.Syscall(*self,syscall.SYS_SHMAT,nil,0)
+	id,_ := strconv.Atoi(self.ShmID)
+	addr,err := unix.SysvShmAttach(id,0,0)
 
 	// attach failed
 	if err != nil {
 		log.Printf("err: attach shm %v\n",err)
 	}
-	defer syscall.Syscall(syscall.SYS_SHMDT,addr)
+	defer unix.SysvShmDetach(addr)
 
 	// cleanup
 	clear(addr)
@@ -74,10 +78,11 @@ func (self *Shm) CleanUp(){
 // public
 func (self *Shm) Close() {
 
-	_, _, err := syscall.Syscall(syscall.SYS_SHMCTL, uintptr(self.ShmID), syscall.IPC_RMID, 0)
+	id,_ := strconv.Atoi(self.ShmID)
+	_,err := unix.SysvShmCtl(id,unix.IPC_RMID,nil)
 
 	// free shm failed
 	if err != nil {
-		log.Println("err: %v",err)
+		log.Println("err:",err)
 	}
 }

@@ -1,10 +1,11 @@
 package db
 
 import (
-	"log",
-	"errors",
-	"context",
-	"slices",
+	"sync"
+	"errors"
+	"context"
+	"slices"
+	"os/exec"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -19,12 +20,10 @@ const (
 )
 
 // Redi State
-type RediState int
-
 const (
-	REDI_OK  RediState = iota
-	REDI_BAD
-	REDI_CRASH
+	REDI_OK  string = "ok"
+	REDI_BAD string = "bad"
+	REDI_CRASH string = "crash"
 )
 
 // Redi Pair
@@ -35,7 +34,7 @@ type RediPair struct {
 }
 
 // snapshot meta data
-type Snapshot []RediPair
+type Snapshot []*RediPair
 
 // global
 var (
@@ -45,10 +44,10 @@ var (
 
 type Redi struct {
 
-	Proc *Cmd
+	Proc *exec.Cmd
 	snapshot Snapshot
 	client *redis.Client
-	ctx Context
+	ctx context.Context
 }
 
 // export
@@ -84,17 +83,17 @@ func NewRedi(port string) *Redi{
 }
 
 // public
-func (self *Redi) CheckAlive() error {
+func (self *Redi) CheckAlive() bool {
 
 	// redi state
-	_,err := self.client.Ping().Result()
+	_,err := self.client.Ping(self.ctx).Result()
 
 	// redi is not alive
 	if err != nil {
-		return err
+		return false
 	}
 
-	return nil
+	return true
 
 }
 
@@ -112,10 +111,10 @@ func (self *Redi) CleanUp() error {
 }
 
 // public
-func (self *Redi) Execute(command string) RediState {
+func (self *Redi) Execute(command string) string {
 
 	state := REDI_OK
-	_,err := self.client.Do(self.ctx,command)
+	_,err := self.client.Do(self.ctx,command).Result()
 	
 	// execute failed
 	if err != nil && err != redis.Nil {
@@ -134,19 +133,19 @@ func (self *Redi) Execute(command string) RediState {
 
 }
 
-
 // public
 // [0] create, [1] delete, [2] others
 func (self *Redi) Diff() ([3]Snapshot,error) {
+
+	var ret [3]Snapshot
 
 	new := make(Snapshot,1)
 	err := self.collect(new)
 
 	if err != nil {
-		return nil,err
+		return ret,err
 	}
 
-	ret := make([3]Snapshot,1)
 	old := self.snapshot
 
 	for index,pair := range new {
@@ -179,7 +178,7 @@ func (self *Redi) collect(snapshot Snapshot) error {
 	keys,err := self.client.Keys(self.ctx,"*").Result()
 
 	// redis query engine, type = "none"
-	ft,err := self.client.Do(self.ctx,"FT._LIST").Result()
+	ft,err := self.client.Do(self.ctx,"FT._LIST").Text()
 	keys = append(keys,ft)
 
 	// Keys failed
@@ -190,12 +189,12 @@ func (self *Redi) collect(snapshot Snapshot) error {
 	// keys
 	for _,key := range keys {
 
-		pair = make(Redi_Pair,1)
+		pair := new(RediPair)
 		pair.Key = key
-		pair.Field = nil
+		pair.Field = ""
 		snapshot = append(snapshot,pair)
 
-		key_type,err := self.client.Type(ctx,key).Result()
+		keyType,err := self.client.Type(self.ctx,key).Result()
 
 		// Type failed
 		if err != nil {
@@ -204,14 +203,14 @@ func (self *Redi) collect(snapshot Snapshot) error {
 
 		// func map
 		fmap := map[string]func(string,Snapshot) error {
-			"hash" : collectHash,
-			// "geo" : collect_geo,
-			"stream" : collectStream,
-			// "none" : collect_ft,
-			// "TSDB-TYPE" : collect_ts,
+			"hash" : self.collectHash,
+			// "geo" : collect geo,
+			"stream" : self.collectStream,
+			// "none" : collect ft,
+			// "TSDB-TYPE" : collect ts,
 		}
 
-		f,ok := fmap[key_type]
+		f,ok := fmap[keyType]
 		if ok {
 			err := f(key,snapshot)
 
@@ -222,14 +221,6 @@ func (self *Redi) collect(snapshot Snapshot) error {
 		}
 
 	}
-
-	/* collect lib,functions
-	err := collect_lib(snapshot)
-	if err != nil {
-		return err
-	}
-	*/
-
 	return nil
 
 }
@@ -240,11 +231,11 @@ func (self *Redi) collectHash(key string,snapshot Snapshot) error {
 
 	// HKEYS failed
 	if err != nil {
-		return errors.New("collect_hash failed.")
+		return errors.New("collect hash failed.")
 	}
 
 	for _,field := range fields {
-		pair := make(Redi_Pair,1)
+		pair := new(RediPair)
 		pair.Key = key
 		pair.Field = field
 		snapshot = append(snapshot,pair)
@@ -259,80 +250,20 @@ func (self *Redi) collectStream(key string,snapshot Snapshot) error {
     entries, err := self.client.XRange(self.ctx,key,"-","+").Result()
 
     if err != nil {
-        return errors.New("collect_stream failed.")
+        return errors.New("collect stream failed.")
     }
 
     for _, entry := range entries {
-        for _, field := range entry.Values {
-			pair := make(Redi_Pair,1)
+        for field := range entry.Values {
+			pair := new(RediPair)
 			pair.Key = key
-			pair.Field = field.Key
+			pair.Field = field
 			snapshot = append(snapshot,pair)
         }
     }
 
     return nil
 }
-
-/*
-func (self *Redi) collectLib(snapshot Snapshot) error {
-
-	result, err := self.client.Do(self.ctx, "FUNCTION", "LIST").Result()
-	if err != nil {
-		return err
-	}
-
-	// libs
-	libs := result.([]interface{})
-	for _,lib := range libs {
-
-		libData := lib.([]interface{})
-		var libName string
-		var functions []string
-
-		for i := 0; i < len(libData); i += 2 {
-
-			key := libData[i].(string)
-			val := libData[i+1]
-			switch key {
-
-			// lib name
-			case "library_name":
-				libName = val.(string)
-
-				pair := make(Redi_Pair,1)
-				pair.Key = libName
-				pair.Field = nil
-				snapshot = append(snapshot,pair)
-
-			// functions
-			case "functions":
-				self.collect_function(snapshot[libName],val)
-			}
-		}
-	}
-
-	return nil
-
-}
-
-func (self *Redi) collectFunction(field_slice []Redi_Field,val interface{}){
-
-	funcs := val.([]interface{})
-
-	for _, f := range funcs {
-
-		funcEntries := f.([]interface{})
-
-		for j := 0; j < len(funcEntries); j += 2 {
-	
-			if funcEntries[j].(string) == "name" {
-				field_slice = append(field_slice,funcEntries[j+1].(string))
-			}
-		}
-	}
-}
-*/
 
 
 

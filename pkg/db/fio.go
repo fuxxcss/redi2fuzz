@@ -6,16 +6,27 @@ package db
 */
 import "C"
 
+import (
+	"sync"
+	"unsafe"
+
+	"github.com/fuxxcss/redi2fuxx/pkg/utils"
+)
+
 // global
 var (
 	globalFIO *FIO
 	mutexFIO sync.Mutex
 )
 
+// fio type
+type Cuint8 C.uint8_t
+type Csize C.size_t
+
 type FIO struct {
 	Start func()
-	Read func(C.u8,C.size_t)
-	Write func(void)
+	Read func(*Cuint8,Csize) Csize
+	Write func()
 }
 
 func SingleFIO(tool string) *FIO {
@@ -24,7 +35,7 @@ func SingleFIO(tool string) *FIO {
 		mutexFIO.Lock()
 		defer mutexFIO.Unlock()
 		if globalFIO == nil {
-			globalFIO = NewRedi(tool)
+			globalFIO = NewFIO(tool)
 		}
 	}
 	return globalFIO
@@ -32,16 +43,23 @@ func SingleFIO(tool string) *FIO {
 
 func NewFIO(tool string) *FIO {
 
-	fio := new(IO)
+	fio := new(FIO)
 
-	// init IO
+	var cStart,cRead,cWrite unsafe.Pointer
+
+	// init FIO
 	switch tool {
 
 	case utils.AFL:
-		fio.Start = C.afl_forkserver_start
-		fio.Read = C.afl_next_testcase
-		fio.Write = C.afl_end_testcase
+		cStart = C.afl_forkserver_start
+		cRead = C.afl_next_testcase
+		cWrite = C.afl_end_testcase
 	}
+
+	fio.Start = *(*func())(unsafe.Pointer(&cStart))
+	fio.Read = *(*func(*Cuint8,Csize) Csize)(unsafe.Pointer(&cRead))
+	fio.Write = *(*func())(unsafe.Pointer(&cWrite))
+
 	return fio
 
 }

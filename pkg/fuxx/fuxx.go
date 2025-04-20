@@ -1,18 +1,16 @@
 package fuxx
 
 import (
-	"os",
-	"log",
-	"fmt",
-	"bytes",
-	"strings",
-	"os/exec",
-	"os/signal",
-	"syscall",
+	"io"
+	"os"
+	"log"
+	"os/exec"
+	"os/signal"
+	"syscall"
 	"strconv"
-
 	// "gopkg.in/yaml.v3"
 	"github.com/fuxxcss/redi2fuxx/pkg/db"
+	"github.com/fuxxcss/redi2fuxx/pkg/utils"
 )
 
 // Fuxxer Server File
@@ -62,7 +60,7 @@ func Fuxx(target,tool string){
 	}
 	dPipe := []*os.File {
 		dRead,
-		dWrite
+		dWrite,
 	}
 
 	// mutator pipe for ipc
@@ -72,7 +70,7 @@ func Fuxx(target,tool string){
 	}
 	mPipe := []*os.File {
 		mRead,
-		mWrite
+		mWrite,
 	}
 
 	// fuxx with rpipe,wpipe
@@ -123,7 +121,7 @@ func Fuxx(target,tool string){
 	os.Setenv(ftool[utils.TOOLS_ENV_FAST_CAL],"1")
 
 	// run fuxxer
-	err := fuxxProc.Run()
+	err = fuxxProc.Run()
 	defer fuxxProc.Process.Kill()
 
 	// failed
@@ -137,7 +135,7 @@ func Fuxx(target,tool string){
 
 	go signalCtl(chanExit)
 	go fuxxPrint(fuxxProc,chanExit,chanExitPrint)
-	go fuxxServer(ftarget,ftool,dPipe,mPipe)
+	go fuxxServer(target,tool,dPipe,mPipe)
 
 	// exit
 	<-chanExitPrint
@@ -148,7 +146,7 @@ func Fuxx(target,tool string){
 func signalCtl(chanExit chan<- struct{}){
 
 	chanSig := make(chan os.Signal,1)
-	signal.Notify(chan_sig, os.Interrupt, syscall.SIGTERM)
+	signal.Notify(chanSig, os.Interrupt, syscall.SIGTERM)
 	<-chanSig
 
 	log.Println("[*] Fuxx Proc is Killed.")
@@ -159,8 +157,8 @@ func signalCtl(chanExit chan<- struct{}){
 // static
 func fuxxPrint(fuxxProc *exec.Cmd,chanExit <-chan struct{},chanExitPrint chan<- struct{}){
 
-	// AFL_Print is exit
-	defer chanExitPrint <- struct{}{}
+	// AFL Print is exit
+	defer func() { chanExitPrint <- struct{}{} }()
 
 	for {
 		select {
@@ -176,17 +174,20 @@ func fuxxPrint(fuxxProc *exec.Cmd,chanExit <-chan struct{},chanExitPrint chan<- 
 			// stdout failed
 			if err != nil {
 				log.Println("err: Fuxx Printer failed.")
-				break
+				return
 			}
 
 			io.Copy(os.Stdout,stdout)
 		}
-		
 	}
+
 }
 
 // static
-func fuxxServer(ftarget,ftool interface{},dPipe,mPipe []*os.File){
+func fuxxServer(target,tool string,dPipe,mPipe []*os.File){
+
+	ftarget := utils.Targets[target]
+	ftool := utils.Tools[tool]
 
 	// init corpus
 	corpus := NewCorpus()
@@ -199,10 +200,11 @@ func fuxxServer(ftarget,ftool interface{},dPipe,mPipe []*os.File){
 		io.ReadAll(dPipe[0])
 
 		// phone driver: port
-		dPipe[1].WriteString(ftarget[TARGET_PORT])
+		dPipe[1].WriteString(ftarget[utils.TARGET_PORT])
 
 		// read testcase from driver
 		recv,err := io.ReadAll(dPipe[0])
+		recvStr := string(recv)
 
 		if err != nil {
 			log.Printf("err: Fuxx Server read %v.",err)
@@ -213,7 +215,7 @@ func fuxxServer(ftarget,ftool interface{},dPipe,mPipe []*os.File){
 		}
 
 		// phone driver: bad
-		testcase,err := corpus.AddSet(recv)
+		testcase,err := corpus.AddSet(recvStr)
 
 		if err != nil {
 
@@ -223,14 +225,16 @@ func fuxxServer(ftarget,ftool interface{},dPipe,mPipe []*os.File){
 		}
 
 		// phone driver: ok
-		dPipe[1].WriteString(db.FSERVER_OK)
+		dPipe[1].WriteString(FSERVER_OK)
 		
 		// fuxx command loop
-		okCnt := len(testcase.commands)
+		length := len(testcase.commands)
+		okCnt := length
 		
-		for index,_ : range len(testcase.commands){
+		for index := 0 ; index < length ; index ++ {
 
 			recv,err = io.ReadAll(dPipe[0])
+			recvStr := string(recv)
 
 			if err != nil {
 				log.Printf("err: Fuxx Server read %v.",err)
@@ -240,19 +244,23 @@ func fuxxServer(ftarget,ftool interface{},dPipe,mPipe []*os.File){
 				return
 			}
 
-			switch recv {
+			switch recvStr {
 
 			// command ok
 			case FSERVER_OK:
-				testcase.BuildGraph(index)
+				err := testcase.BuildGraph(index)
+
+				if err != nil {
+					log.Printf("err: Build Gragh %v.",err)
+				}
 
 			// command has fault
 			case FSERVER_BAD:
-				-- okCnt
+				okCnt --
 
 			// command crash
-			case db.FSERVER_ERR:
-				file,err := os.OpenFile(hash,os.O_CREATE | os.O_WRONLY | os.O_TRUNC,0664)
+			case FSERVER_ERR:
+				file,err := os.OpenFile(testcase.hash,os.O_CREATE | os.O_WRONLY | os.O_TRUNC,0664)
 				crash := "[*] Found a crash :)"
 
 				// don't miss crash
@@ -262,9 +270,11 @@ func fuxxServer(ftarget,ftool interface{},dPipe,mPipe []*os.File){
 				}
 
 				// log crash
+				indexStr := strconv.Itoa(index)
+
 				file.WriteString(crash + "\n")
-				file.WriteString("index ==> " + strconv.Itoa(cnt) + "\n")
-				file.WriteString(recv)
+				file.WriteString("index ==> " + indexStr + "\n")
+				file.WriteString(recvStr)
 
 				// restart
 				db.StartUp(ftarget,ftool)
@@ -286,9 +296,7 @@ func fuxxServer(ftarget,ftool interface{},dPipe,mPipe []*os.File){
 			corpus.UpdateWeight(testcase)
 		}
 
-		var mutated string
-
-		mutated = corpus.Mutate()
+		mutated := corpus.Mutate()
 
 		// write testcase to mutator
 		mPipe[1].WriteString(mutated)

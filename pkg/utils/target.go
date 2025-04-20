@@ -15,19 +15,21 @@ const (
 	TARGET_PATH
 )
 
-var Targets = map[string]interface{} {
+type TargetsType map[TargetFeature]string
+
+var Targets = map[string]TargetsType {
 	// Redis
-	Redis : map[TargetFeature]interface{} {
+	Redis : TargetsType {
 		TARGET_PORT : "6379",
 		TARGET_PATH : "/usr/local/redis/src/redis-server",
 	},
 	// KeyDB
-	KeyDB : map[TargetFeature]interface{} {
+	KeyDB : TargetsType {
 		TARGET_PORT : "6380",
 		TARGET_PATH : "/usr/local/keydb/src/keydb-server",
 	},
 	// RediStack
-	RediStack : map[TargetFeature]interface{} {
+	RediStack : TargetsType {
 		TARGET_PORT : "6381",
 		TARGET_PATH : "/usr/local/redis/src/redis-stack-server",
 	},

@@ -1,81 +1,79 @@
 package db
 
 import (
-	"os"
-	"log"
 	"bytes"
-	"errors"
-	"strings"
+	"log"
+	"os"
 	"os/exec"
 	"regexp"
+	"strings"
 
 	"github.com/fuxxcss/redi2fuxx/pkg/utils"
 )
 
-// export 
-func StartUp(target utils.TargetsType,tool utils.ToolsType) (*Shm,error) {
+// export
+func StartUp(target utils.TargetsType, tool utils.ToolsType) *Shm {
 
-	var path,port string
+	var path, port string
 
 	// path, port
 	path = target[utils.TARGET_PATH]
 	port = target[utils.TARGET_PORT]
-	
+
 	redi := SingleRedi(port)
+
 	alive := redi.CheckAlive()
 
-	// need to startup
-	if !alive {
-		return startupCore(path,port,tool),nil
-
-	// already startup
-	}else {
-		return nil,errors.New("Already StartUp.")
+	// already startup, shutdown first
+	if alive {
+		redi.client.Do(redi.ctx,"shutdown")
 	}
-		
+
+	// core func
+	return startupCore(path, port, tool)
+
 }
 
 // static
-func startupCore(path,port string,tool utils.ToolsType) *Shm {
+func startupCore(path, port string, tool utils.ToolsType) *Shm {
 
 	// cannot find path
-	_,err := os.Stat(path)
+	_, err := os.Stat(path)
 	if err != nil {
-		log.Fatalf("err: %v %v",path,err)
+		log.Fatalf("err: %v %v", path, err)
 	}
 
 	// set ENV_DEBUG get map size
-	var stdout bytes.Buffer
-	os.Setenv(tool[utils.TOOLS_ENV_DEBUG],"1")
+	var stderr bytes.Buffer
+	os.Setenv(tool[utils.TOOLS_ENV_DEBUG], "1")
 
 	debugProc := exec.Command(path)
-	debugProc.Stdout = &stdout
-	err = debugProc.Run()
+	debugProc.Stderr = &stderr
+	err = debugProc.Start()
 
 	// cannot run path
 	if err != nil {
-		log.Fatalf("err: %v %v\n",path,err)
+		log.Fatalf("err: %v %v\n", path, err)
 	}
 
 	// deal with stdout
-	log.Println("[*] Get Debug Size.")
 	var originStr string
 	toMatch := tool[utils.TOOLS_ENV_DEBUG_SIZE]
 
 	for {
-		originStr = stdout.String()
-		if strings.Contains(originStr,toMatch) {
+		originStr = stderr.String()
+		if strings.Contains(originStr, toMatch) {
 			break
 		}
 	}
 	debugProc.Process.Kill()
 
 	// get debug size
-	re := regexp.MustCompile(toMatch + `=(\S+)`)
+	re := regexp.MustCompile(toMatch + ` ([0-9]+)`)
 	isMatch := re.FindStringSubmatch(originStr)
 
 	shmsize := isMatch[1]
-	
+
 	// startup shm
 	shm := SingleShm(shmsize)
 
@@ -84,36 +82,40 @@ func startupCore(path,port string,tool utils.ToolsType) *Shm {
 
 	// startup db
 	// DB ENVs
-	os.Setenv(tool[utils.TOOLS_ENV_DEBUG],"0")
-	os.Setenv(tool[utils.TOOLS_ENV_MAX_SIZE],shm.ShmSize)
-	os.Setenv(tool[utils.TOOLS_ENV_SHM_ID],shm.ShmID)
+	os.Setenv(tool[utils.TOOLS_ENV_DEBUG], "0")
+	os.Setenv(tool[utils.TOOLS_ENV_MAX_SIZE], shm.ShmSize)
+	os.Setenv(tool[utils.TOOLS_ENV_SHM_ID], shm.ShmID)
+
 	// DB args
-	args := []string {
+	args := []string{
 		// port
-		RediSep + " " + port,
-		// daemon
-		RediDeamon,
+		RediPort + " " + port,
 	}
-	rediProc := exec.Command(path,args...)
-	err = rediProc.Run()
-	
-	redi := SingleRedi(port)
-	alive := redi.CheckAlive()
+	rediProc := exec.Command(path, args...)
+	err = rediProc.Start()
 
 	// db failed
 	if err != nil {
-		log.Fatalf("err: db %v\n",err)
-	}
-	if !alive {
+		shm.Close()
 		log.Fatalln("err: redi failed.")
+	}
+
+	redi := SingleRedi(port)
+
+	// waiting redi startup
+	for {
+		alive := redi.CheckAlive()
+		if alive {
+			break
+		}
 	}
 
 	// db succeed
 	redi.Proc = rediProc
-	log.Printf("[*] DB %v StartUp.\n",path)
+	log.Printf("[*] DB %v StartUp.\n", path)
 
 	return shm
-	
+
 }
 
 func ShutDown() {

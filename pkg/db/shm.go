@@ -37,16 +37,16 @@ func NewShm(shmsize string) *Shm {
 	shm := new(Shm)
 
 	// ipcmk
-	size,_ := strconv.Atoi(shmsize)
-	id, err := unix.SysvShmGet(unix.IPC_PRIVATE,size,0666)
+	size, _ := strconv.Atoi(shmsize)
+	id, err := unix.SysvShmGet(unix.IPC_PRIVATE, size,0666)
 
 	// ipcmk failed
 	if err != nil {
-		log.Fatalf("err: ipcmk %v\n",err)
+		log.Fatalf("err: ipcmk %v\n", err)
 	}
 
 	// ipcmk succeed
-	log.Printf("[*] Shared Mem ID = %v StartUp, Size = %v.\n",id,shmsize)
+	log.Printf("[*] Shared Mem ID = %v StartUp, Size = %v.\n", id, shmsize)
 
 	shmid := strconv.Itoa(id)
 
@@ -61,12 +61,12 @@ func NewShm(shmsize string) *Shm {
 func (self *Shm) CleanUp(){
 
 	// attach
-	id,_ := strconv.Atoi(self.ShmID)
-	addr,err := unix.SysvShmAttach(id,0,0)
+	id, _ := strconv.Atoi(self.ShmID)
+	addr, err := unix.SysvShmAttach(id, 0, 0)
 
 	// attach failed
 	if err != nil {
-		log.Printf("err: attach shm %v\n",err)
+		log.Printf("err: attach shm %v\n", err)
 	}
 	defer unix.SysvShmDetach(addr)
 
@@ -78,11 +78,11 @@ func (self *Shm) CleanUp(){
 // public
 func (self *Shm) Close() {
 
-	id,_ := strconv.Atoi(self.ShmID)
-	_,err := unix.SysvShmCtl(id,unix.IPC_RMID,nil)
+	id, _ := strconv.Atoi(self.ShmID)
+	_, err := unix.SysvShmCtl(id, unix.IPC_RMID, nil)
 
 	// free shm failed
 	if err != nil {
-		log.Println("err:",err)
+		log.Println("err:", err)
 	}
 }

@@ -1,6 +1,6 @@
 package analyze
 
-func Analyze(target,bug string){
+func Analyze(target, bug string){
 	
 	return
 }

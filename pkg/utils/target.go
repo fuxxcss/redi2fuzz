@@ -1,5 +1,18 @@
 package utils
 
+// traget state
+const (
+	STATE_LEN int = 3
+	STATE_OK  string = "okk"
+	STATE_BAD string = "bad"
+	STATE_ERR string = "err"
+)
+
+// testcase maxsize
+const (
+	MaxSize int = 0x100000
+)
+
 // fuxx targets
 const (
 	Redis string = "redis"

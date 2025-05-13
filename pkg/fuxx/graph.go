@@ -31,12 +31,12 @@ type Vertex struct {
     next []*Vertex
 }
 
-func (self *Graph) AddVertex(isCmd VertexType,data string) *Vertex{
+func (self *Graph) AddVertex(isCmd VertexType, data string) *Vertex{
 
     vertex := new(Vertex)
     vertex.vtype = isCmd
     vertex.vdata = data
-    self.sliceV = append(self.sliceV,vertex)
+    self.sliceV = append(self.sliceV, vertex)
 
     return vertex
 }
@@ -44,7 +44,7 @@ func (self *Graph) AddVertex(isCmd VertexType,data string) *Vertex{
 func (self *Graph) Contains(data string) bool {
 
     isContains := false
-    for _,vertex := range self.sliceV {
+    for _, vertex := range self.sliceV {
 
         // contains data
         if vertex.vtype != cmdVertex && vertex.vdata == data {
@@ -56,59 +56,59 @@ func (self *Graph) Contains(data string) bool {
 }
 
 
-func (self *Graph) Build(snapshots [3]db.Snapshot,command string) {
+func (self *Graph) Build(snapshots [3]db.Snapshot, command string) {
 
     // cmd vertex
-    self.cmdV = self.AddVertex(cmdVertex,command)
+    self.cmdV = self.AddVertex(cmdVertex, command)
 
     // deal with create
-    keyMap := make(map[string]*Vertex,1)
+    keyMap := make(map[string]*Vertex, 1)
 
-    for _,pair := range snapshots[0] {
+    for _, pair := range snapshots[0] {
         key := pair.Key
         field := pair.Field
 
         // create key
         if field == "" {
-            keyV := self.AddVertex(keyVertex,key)
+            keyV := self.AddVertex(keyVertex, key)
             keyMap[key] = keyV
             
             // edge (cmd, key)
             // cmd -> key
-            self.cmdV.next = append(self.cmdV.next,keyV)
-            keyV.prev = append(keyV.prev,self.cmdV)
+            self.cmdV.next = append(self.cmdV.next, keyV)
+            keyV.prev = append(keyV.prev, self.cmdV)
         }
     }
 
-    for _,pair := range snapshots[0] {
+    for _, pair := range snapshots[0] {
         key := pair.Key
         field := pair.Field
 
         // create field
         if field != "" {
-            fieldV := self.AddVertex(fieldVertex,field)
+            fieldV := self.AddVertex(fieldVertex, field)
 
             // edge (key, field)
             // cmd -> key -> field
             if keyV,ok := keyMap[key] ; ok {
-                keyV.next = append(keyV.next,fieldV)
-                fieldV.prev = append(fieldV.prev,keyV)
+                keyV.next = append(keyV.next, fieldV)
+                fieldV.prev = append(fieldV.prev, keyV)
 
             // edge (cmd, field), (key, cmd), (key, field)
             // key -> cmd -> field
             //  '-------------^
             }else {
-                self.cmdV.next = append(self.cmdV.next,fieldV)
-                fieldV.prev = append(fieldV.prev,self.cmdV)
+                self.cmdV.next = append(self.cmdV.next, fieldV)
+                fieldV.prev = append(fieldV.prev, self.cmdV)
 
-                keyV := self.AddVertex(keyVertex,key)
+                keyV := self.AddVertex(keyVertex, key)
                 keyMap[key] = keyV
 
-                keyV.next = append(keyV.next,self.cmdV)
-                self.cmdV.prev = append(self.cmdV.prev,keyV)
+                keyV.next = append(keyV.next, self.cmdV)
+                self.cmdV.prev = append(self.cmdV.prev, keyV)
 
-                keyV.next = append(keyV.next,fieldV)
-                fieldV.prev = append(fieldV.prev,keyV)
+                keyV.next = append(keyV.next, fieldV)
+                fieldV.prev = append(fieldV.prev, keyV)
             }
         }
     }
@@ -116,47 +116,47 @@ func (self *Graph) Build(snapshots [3]db.Snapshot,command string) {
     // deal with delete
     clear(keyMap)
 
-    for _,pair := range snapshots[1] {
+    for _, pair := range snapshots[1] {
         key := pair.Key
         field := pair.Field
 
         // delete key
         if field == "" {
-            keyV := self.AddVertex(keyVertex,key)
+            keyV := self.AddVertex(keyVertex, key)
             keyMap[key] = keyV
             
             // edge (key, cmd)
             // key -> cmd
-            self.cmdV.prev = append(self.cmdV.prev,keyV)
-            keyV.next = append(keyV.next,self.cmdV)
+            self.cmdV.prev = append(self.cmdV.prev, keyV)
+            keyV.next = append(keyV.next, self.cmdV)
         }
     }
 
-    for _,pair := range snapshots[1] {
+    for _, pair := range snapshots[1] {
         key := pair.Key
         field := pair.Field
 
         // delete field
         if field != "" {
-            fieldV := self.AddVertex(fieldVertex,field)
+            fieldV := self.AddVertex(fieldVertex, field)
 
             // edge (key, field)
             // field <- key -> cmd
-            if keyV,ok := keyMap[key] ; ok {
-                keyV.next = append(keyV.next,fieldV)
-                fieldV.prev = append(fieldV.prev,keyV)
+            if keyV, ok := keyMap[key] ; ok {
+                keyV.next = append(keyV.next, fieldV)
+                fieldV.prev = append(fieldV.prev, keyV)
 
             // edge (field, cmd), (key, field)
             // key -> field -> cmd
             }else {
-                self.cmdV.prev = append(self.cmdV.prev,fieldV)
-                fieldV.next = append(fieldV.next,self.cmdV)
+                self.cmdV.prev = append(self.cmdV.prev, fieldV)
+                fieldV.next = append(fieldV.next, self.cmdV)
 
-                keyV := self.AddVertex(keyVertex,key)
+                keyV := self.AddVertex(keyVertex, key)
                 keyMap[key] = keyV
 
-                keyV.next = append(keyV.next,fieldV)
-                fieldV.prev = append(fieldV.prev,keyV)
+                keyV.next = append(keyV.next, fieldV)
+                fieldV.prev = append(fieldV.prev, keyV)
             }
         }
     }
@@ -164,47 +164,47 @@ func (self *Graph) Build(snapshots [3]db.Snapshot,command string) {
     // deal with keep
     clear(keyMap)
 
-    for _,pair := range snapshots[2] {
+    for _, pair := range snapshots[2] {
         key := pair.Key
         field := pair.Field
 
         // keep key
-        if field == "" && strings.Contains(command,key) && !self.Contains(key) {
-            keyV := self.AddVertex(keyVertex,key)
+        if field == "" && strings.Contains(command, key) && !self.Contains(key) {
+            keyV := self.AddVertex(keyVertex, key)
             keyMap[key] = keyV
             
             // edge (key, cmd)
             // key -> cmd
-            self.cmdV.prev = append(self.cmdV.prev,keyV)
-            keyV.next = append(keyV.next,self.cmdV)
+            self.cmdV.prev = append(self.cmdV.prev, keyV)
+            keyV.next = append(keyV.next, self.cmdV)
         }
     }
 
-    for _,pair := range snapshots[2] {
+    for _, pair := range snapshots[2] {
         key := pair.Key
         field := pair.Field
 
         // keep field
-        if field != "" && strings.Contains(command,field) && !self.Contains(field) {
-            fieldV := self.AddVertex(fieldVertex,field)
+        if field != "" && strings.Contains(command, field) && !self.Contains(field) {
+            fieldV := self.AddVertex(fieldVertex, field)
 
             // edge (key, field)
             // field <- key -> cmd
-            if keyV,ok := keyMap[key] ; ok {
-                keyV.next = append(keyV.next,fieldV)
-                fieldV.prev = append(fieldV.prev,keyV)
+            if keyV, ok := keyMap[key] ; ok {
+                keyV.next = append(keyV.next, fieldV)
+                fieldV.prev = append(fieldV.prev, keyV)
 
             // edge (field, cmd), (key, field)
             // key -> field -> cmd 
             }else {
-                self.cmdV.prev = append(self.cmdV.prev,fieldV)
-                fieldV.next = append(fieldV.next,self.cmdV)
+                self.cmdV.prev = append(self.cmdV.prev, fieldV)
+                fieldV.next = append(fieldV.next, self.cmdV)
 
-                keyV := self.AddVertex(keyVertex,key)
+                keyV := self.AddVertex(keyVertex, key)
                 keyMap[key] = keyV
 
-                keyV.next = append(keyV.next,fieldV)
-                fieldV.prev = append(fieldV.prev,keyV)
+                keyV.next = append(keyV.next, fieldV)
+                fieldV.prev = append(fieldV.prev, keyV)
             }
         }
     }
@@ -215,44 +215,44 @@ func (self *Graph) Build(snapshots [3]db.Snapshot,command string) {
 func (self *Graph) Match(graph *Graph) bool {
 
     // select all keys
-    matchKeys := make([]*Vertex,1)
-    hasKeys := make([]*Vertex,1)
+    matchKeys := make([]*Vertex, 1)
+    hasKeys := make([]*Vertex, 1)
 
     // fieldVertex.prev must be one key
-    for _,matchV := range self.cmdV.prev {
+    for _, matchV := range self.cmdV.prev {
 
         if matchV.vtype == fieldVertex {
 
             matchV = matchV.prev[0]
 
             // alreay selected
-            if slices.Contains(matchKeys,matchV) {
+            if slices.Contains(matchKeys, matchV) {
                 continue
             }
         }
-        matchKeys = append(matchKeys,matchV)
+        matchKeys = append(matchKeys, matchV)
     }
     
-    for _,hasV := range graph.cmdV.next {
+    for _, hasV := range graph.cmdV.next {
 
         if hasV.vtype == fieldVertex {
 
             hasV = hasV.prev[0]
 
             // alreay selected
-            if slices.Contains(hasKeys,hasV) {
+            if slices.Contains(hasKeys, hasV) {
                 continue
             }
         }
-        hasKeys = append(hasKeys,hasV)
+        hasKeys = append(hasKeys, hasV)
     }
     
     // match self -> graph
-    for _,match := range matchKeys {
+    for _, match := range matchKeys {
 
         // match len
         matchLen := 0
-        for _,matchNext := range match.next {
+        for _, matchNext := range match.next {
             if matchNext.vtype == fieldVertex {
                 matchLen ++
             }
@@ -260,11 +260,11 @@ func (self *Graph) Match(graph *Graph) bool {
 
         isMatched := false
 
-        for _,has := range hasKeys {
+        for _, has := range hasKeys {
 
             // has len
             hasLen := 0
-            for _,hasNext := range has.next {
+            for _, hasNext := range has.next {
                 if hasNext.vtype == fieldVertex {
                     hasLen ++
                 }
@@ -276,12 +276,12 @@ func (self *Graph) Match(graph *Graph) bool {
                 isMatched = true
 
                 // need to patch
-                self.cmdV.vdata = strings.Replace(self.cmdV.vdata,match.vdata,has.vdata,-1)
+                self.cmdV.vdata = strings.Replace(self.cmdV.vdata, match.vdata, has.vdata, -1)
                 match.vdata = has.vdata
 
                 for i := 0 ; i < matchLen ; i ++ {
 
-                    self.cmdV.vdata = strings.Replace(self.cmdV.vdata,match.next[i].vdata,has.next[1].vdata,-1)
+                    self.cmdV.vdata = strings.Replace(self.cmdV.vdata, match.next[i].vdata, has.next[1].vdata, -1)
                     match.next[i].vdata = has.next[1].vdata
                 }
 
@@ -300,7 +300,7 @@ func (self *Graph) Match(graph *Graph) bool {
     return true
 }
 
-func MutateStr(r *rand.Rand,str string) string {
+func MutateStr(r *rand.Rand, str string) string {
 
     item := r.Intn(len(InterestingStr))
     chosen := InterestingStr[item]
@@ -312,7 +312,7 @@ func MutateStr(r *rand.Rand,str string) string {
         return chosen
 
     // null, terminal, hex, short str
-    case InterestNULL,InterestTerminal,InterestHex,InterestShort:
+    case InterestNULL,InterestTerminal, InterestHex, InterestLong:
         return str + chosen
 
     // special
@@ -336,10 +336,10 @@ func (self *Graph) MutateGraph(r *rand.Rand) {
         vertex := self.sliceV[index]
     
         // only mutate key, field, avoid token mutate
-        if vertex.vtype != cmdVertex && !strings.Contains(vertex.vdata,db.RediStrSep){
+        if vertex.vtype != cmdVertex && !strings.Contains(vertex.vdata, db.RediStrSep){
             
-            mutatedData := MutateStr(r,vertex.vdata)
-            self.cmdV.vdata = strings.Replace(self.cmdV.vdata,vertex.vdata,mutatedData,-1)
+            mutatedData := MutateStr(r, vertex.vdata)
+            self.cmdV.vdata = strings.Replace(self.cmdV.vdata, vertex.vdata, mutatedData, -1)
             vertex.vdata = mutatedData
         }
     }
@@ -347,32 +347,33 @@ func (self *Graph) MutateGraph(r *rand.Rand) {
 }
 
 // str, int mutate
-func MutateToken(r *rand.Rand,cmdStr string) string {
+func MutateToken(r *rand.Rand, cmdStr string) string {
 
-    sliceToken := strings.Split(cmdStr,db.RediTokenSep)
+    sliceToken := strings.Split(cmdStr, db.RediTokenSep)
 
-    for i,token := range sliceToken {
+    for i, token := range sliceToken {
 
         // int mutate
-        _,err := strconv.Atoi(token)
+        _, errI := strconv.Atoi(token)
+        _, errF := strconv.ParseFloat(token, 32)
 
-        if err == nil {
+        if errI == nil && errF == nil {
 
-            chosen := r.Intn(len(InterestingInt))
-            sliceToken[i] = InterestingInt[chosen]
+            chosen := r.Intn(len(InterestingNum))
+            sliceToken[i] = InterestingNum[chosen]
         }
 
         // str mutate
-        sliceStr := strings.Split(token,db.RediStrSep)
+        sliceStr := strings.Split(token, db.RediStrSep)
 
         if len(sliceStr) >= 3 {
 
-            sliceStr[1] = MutateStr(r,sliceStr[1])
+            sliceStr[1] = MutateStr(r, sliceStr[1])
 
             mutatedStr := ""
 
             // assemble
-            for _,str := range sliceStr {
+            for _, str := range sliceStr {
                 
                 mutatedStr += str + db.RediStrSep
             }

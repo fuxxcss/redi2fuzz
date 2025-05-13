@@ -3,6 +3,7 @@ package fuxx
 import (
 	"crypto/md5"
 	"errors"
+	"log"
 	"math/rand"
 	"sort"
 	"strings"
@@ -19,7 +20,7 @@ type CommandFeature int
 
 const (
 	CMD_TEXT CommandFeature = iota
-	CMD_TIME
+	CMD_TOKEN
 	CMD_ACTION
 )
 
@@ -27,15 +28,13 @@ type Testcase struct {
 	hash   string
 	graph  []*Graph
 	weight float32
-	// unused
-	time     int
 	commands []Command
 }
 
 // corpus max
 const (
-	CORPUS_MINLEN    int = 20
-	CORPUS_MAXLEN    int = 60
+	CORPUS_MINLEN    int = 15
+	CORPUS_MAXLEN    int = 45
 	CORPUS_THRESHOLD int = 50
 )
 
@@ -68,10 +67,21 @@ func NewTestcase(testcase, hash string) *Testcase {
 	for i, str := range sliceStr {
 
 		testPtr.commands[i] = make(Command, 3)
+
 		// text
 		testPtr.commands[i][CMD_TEXT] = str
-		// unused
-		testPtr.commands[i][CMD_TIME] = 0
+
+		// args
+		sliceToken := strings.Split(str, db.RediTokenSep)
+		tokens := make([]string, 0)
+
+		for _,token := range sliceToken {
+			if token != ""  {
+				tokens = append(tokens, token)
+			}
+		}
+		testPtr.commands[i][CMD_TOKEN] = tokens
+
 		// action
 		testPtr.commands[i][CMD_ACTION] = 0
 	}
@@ -169,7 +179,7 @@ func (self *Corpus) UpdateWeight(testPtr *Testcase) {
 
 	// calc weight
 	testPtr.weight = float32(actions) / float32(length)
-
+	log.Println(testPtr.weight)
 	// insert testPtr
 	pos := sort.Search(len(self.order), func(i int) bool { return self.order[i].weight >= testPtr.weight })
 	copy(self.order[(pos+1):], self.order[pos:])
@@ -235,6 +245,7 @@ func (self *Corpus) Mutate() string {
 	mutated := ""
 
 	sliceGraph := make([]*Graph, 1)
+	
 	for i := 0; i < length; i++ {
 
 		// select one command
@@ -266,7 +277,7 @@ func (self *Corpus) Mutate() string {
 		}
 
 		// mutate str, int
-		graph.cmdV.vdata = MutateToken(r,graph.cmdV.vdata)
+		graph.cmdV.vdata = MutateToken(r, graph.cmdV.vdata)
 
 		sliceGraph = append(sliceGraph, graph)
 		mutated += graph.cmdV.vdata + db.RediSep

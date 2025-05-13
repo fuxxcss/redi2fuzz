@@ -14,7 +14,7 @@ var analyzeCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		bug := args[0]
-		analyze.Analyze(fuxxTarget,bug)
+		analyze.Analyze(fuxxTarget, bug)
 	},
 }
 

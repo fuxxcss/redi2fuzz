@@ -1,151 +1,137 @@
 package fuxx
 
 import (
-	"io"
-	"os"
 	"log"
+	"os"
 	"os/exec"
 	"os/signal"
-	"syscall"
 	"strconv"
-	// "gopkg.in/yaml.v3"
+	"syscall"
+	//"gopkg.in/yaml.v3"
 	"github.com/fuxxcss/redi2fuxx/pkg/db"
 	"github.com/fuxxcss/redi2fuxx/pkg/utils"
 )
 
-// Fuxxer Server File
-const (
-	FDRIVER_R int = iota +  3
-	FDRIVER_W
-	FMUTATOR_R
-	FMUTATOR_W
-)
-
-// Fuxxer Server phone string
-const (
-	FSERVER_OK string = "ok"
-	FSERVER_BAD string = "bad"
-	FSERVER_ERR string = "err"
-)
-
 // export
-func Fuxx(target,tool string){
+func Fuxx(target, tool string) {
 
 	// Fuxx Tool (afl, honggfuzz)
-	ftool,ok := utils.Tools[tool]
+	ftool, ok := utils.Tools[tool]
 
 	if !ok {
-		log.Fatalf("err: %v tool is not support\n",tool)
+		log.Fatalf("err: %v tool is not support\n", tool)
 	}
 
 	// Fuxx Target (redis, keydb, redis-stack)
-	ftarget,ok := utils.Targets[target]
+	ftarget, ok := utils.Targets[target]
 
 	if !ok {
-		log.Fatalf("err: %v target is not support\n",target)
+		log.Fatalf("err: %v target is not support\n", target)
 	}
 
 	// StartUp target first
-	shm,err := db.StartUp(ftarget,ftool)
+	shm := db.StartUp(ftarget, ftool)
 	defer db.ShutDown()
 
+	// driver testcase string pipe for ipc
+	strRead, strWrite, err := os.Pipe()
 	if err != nil {
-		log.Printf("err: %v",err)
+		log.Panicf("err: fserver string pipe failed %v\n", err)
 	}
-	
-	// driver pipe for ipc
-	dRead,dWrite,err := os.Pipe()
+
+	// driver control pipe for ipc
+	ctlRead, ctlWrite, err := os.Pipe()
 	if err != nil {
-		log.Fatalf("err: testcase pipe failed %v\n",err)
+		log.Panicf("err: fserver control pipe failed %v\n", err)
 	}
-	dPipe := []*os.File {
-		dRead,
-		dWrite,
+
+	dPipe := []*os.File{
+		strRead,
+		ctlWrite,
 	}
 
 	// mutator pipe for ipc
-	mRead,mWrite,err := os.Pipe()
+	mutRead, mutWrite, err := os.Pipe()
 	if err != nil {
-		log.Fatalf("err: control pipe failed %v\n",err)
+		log.Panicf("err: fserver mutate pipe failed %v\n", err)
 	}
-	mPipe := []*os.File {
-		mRead,
-		mWrite,
+
+	mPipe := []*os.File{
+		mutWrite,
 	}
 
 	// fuxx with rpipe,wpipe
 	exe := ftool[utils.TOOLS_EXE]
-	args := []string {
-
-		// to do (YAML)
-		// dict
-		ftool[utils.TOOLS_DICT] + " " + "fuzz/dumb/" + target + ".dict",
+	args := []string{
 		// timeout
 		ftool[utils.TOOLS_TIMEOUT] + " " + "5000",
 		// input
-		ftool[utils.TOOLS_INPUT] + " " + "fuzz/input/" + target,
+		ftool[utils.TOOLS_INPUT] + "fuzz/input/" + target,
 		// output
-		ftool[utils.TOOLS_OUTPUT] + " " + "fuzz/output/" + target,
+		ftool[utils.TOOLS_OUTPUT] + "fuzz/output/" + target,
 		// driver
-		ftool[utils.TOOLS_DRIVER] + " " + "build/driver",
+		"build/driver",
 	}
 
-	fuxxProc := exec.Command(exe,args...)
+	fuxxProc := exec.Command(exe, args...)
 	fuxxProc.ExtraFiles = []*os.File{
 		// driver pipe
-		dRead,
-		dWrite,
+		ctlRead,
+		strWrite,
 		// mutator pipe
-		mRead,
-		mWrite,
+		mutRead,
 	}
+
+	// fuxx printer
+	fuxxProc.Stdout = os.Stdout
+	fuxxProc.Stderr = os.Stderr
 
 	// fuxx envs
 	// coverage map env must be set
-	os.Setenv(utils.CoverageMap,shm.ShmID)
+	os.Setenv(utils.CoverageMap, shm.ShmID)
+	// fuxx tool
+	os.Setenv(utils.BaseTool, tool)
 	// debug env
-	os.Setenv(ftool[utils.TOOLS_ENV_DEBUG],"0")
+	os.Setenv(ftool[utils.TOOLS_ENV_DEBUG], "0")
 	// max size env
-	os.Setenv(ftool[utils.TOOLS_ENV_MAX_SIZE],shm.ShmSize)
+	os.Setenv(ftool[utils.TOOLS_ENV_MAX_SIZE], shm.ShmSize)
 	// custom flag env
-	os.Setenv(ftool[utils.TOOLS_ENV_CUSTOM_FLAG],"1")
+	os.Setenv(ftool[utils.TOOLS_ENV_CUSTOM_FLAG], "1")
 	// custom path env
-	os.Setenv(ftool[utils.TOOLS_ENV_CUSTOM_PATH],"build/libmutator.so")
+	os.Setenv(ftool[utils.TOOLS_ENV_CUSTOM_PATH], "build/libmutator.so")
 	// skip cpufreq env
-	os.Setenv(ftool[utils.TOOLS_ENV_SKIP_CPUFREQ],"1")
+	os.Setenv(ftool[utils.TOOLS_ENV_SKIP_CPUFREQ], "1")
 	// skip bin check env
-	os.Setenv(ftool[utils.TOOLS_ENV_SKIP_BIN_CHECK],"1")
+	os.Setenv(ftool[utils.TOOLS_ENV_SKIP_BIN_CHECK], "1")
 	// use asan env
-	os.Setenv(ftool[utils.TOOLS_ENV_USE_ASAN],"1")
+	os.Setenv(ftool[utils.TOOLS_ENV_USE_ASAN], "1")
 	// fast cal env
-	os.Setenv(ftool[utils.TOOLS_ENV_FAST_CAL],"1")
+	os.Setenv(ftool[utils.TOOLS_ENV_FAST_CAL], "1")
 
 	// run fuxxer
-	err = fuxxProc.Run()
+	err = fuxxProc.Start()
 	defer fuxxProc.Process.Kill()
 
 	// failed
 	if err != nil {
-		log.Fatalf("err: fuxx proc %v\n",err)
+		log.Panicf("err: fuxx proc %v\n", err)
 	}
 
 	// succeed
 	chanExit := make(chan struct{})
-	chanExitPrint := make(chan struct{})
 
 	go signalCtl(chanExit)
-	go fuxxPrint(fuxxProc,chanExit,chanExitPrint)
-	go fuxxServer(target,tool,dPipe,mPipe)
+	go fuxxServer(target, tool, dPipe, mPipe)
 
 	// exit
-	<-chanExitPrint
-		
+	<-chanExit
+
 }
 
 // static
-func signalCtl(chanExit chan<- struct{}){
+func signalCtl(chanExit chan<- struct{}) {
 
-	chanSig := make(chan os.Signal,1)
+	chanSig := make(chan os.Signal, 1)
 	signal.Notify(chanSig, os.Interrupt, syscall.SIGTERM)
 	<-chanSig
 
@@ -155,36 +141,7 @@ func signalCtl(chanExit chan<- struct{}){
 }
 
 // static
-func fuxxPrint(fuxxProc *exec.Cmd,chanExit <-chan struct{},chanExitPrint chan<- struct{}){
-
-	// AFL Print is exit
-	defer func() { chanExitPrint <- struct{}{} }()
-
-	for {
-		select {
-		
-		// chan exit
-		case <-chanExit:
-			log.Println("[*] Fuxx Printer exit.")
-			return
-		
-		default:
-			stdout,err := fuxxProc.StdoutPipe()
-	
-			// stdout failed
-			if err != nil {
-				log.Println("err: Fuxx Printer failed.")
-				return
-			}
-
-			io.Copy(os.Stdout,stdout)
-		}
-	}
-
-}
-
-// static
-func fuxxServer(target,tool string,dPipe,mPipe []*os.File){
+func fuxxServer(target, tool string, dPipe, mPipe []*os.File) {
 
 	ftarget := utils.Targets[target]
 	ftool := utils.Tools[tool]
@@ -192,75 +149,72 @@ func fuxxServer(target,tool string,dPipe,mPipe []*os.File){
 	// init corpus
 	corpus := NewCorpus()
 
+	// init redi
+	redi := db.SingleRedi(ftarget[utils.TARGET_PORT])
+
+	// init buffer
+	recv := make([]byte, utils.MaxSize)
+
 	// fuxx loop
 	for {
-		// phone driver: tool
-		dPipe[1].WriteString(tool)
-		
-		io.ReadAll(dPipe[0])
-
-		// phone driver: port
-		dPipe[1].WriteString(ftarget[utils.TARGET_PORT])
 
 		// read testcase from driver
-		recv,err := io.ReadAll(dPipe[0])
-		recvStr := string(recv)
+		size, err := dPipe[0].Read(recv)
 
 		if err != nil {
-			log.Printf("err: Fuxx Server read %v.",err)
+			log.Printf("err: Fuxx Server read %v.", err)
 
 			// phone driver: err
-			dPipe[1].WriteString(FSERVER_ERR)
+			dPipe[1].WriteString(utils.STATE_ERR)
 			return
 		}
 
-		// phone driver: bad
-		testcase,err := corpus.AddSet(recvStr)
-
+		// bad testcase, skip it
+		origin := string(recv[:size])
+		testPtr, err := corpus.AddSet(origin)
+		
 		if err != nil {
-
-			log.Printf("bad: %v\n",err)
-			dPipe[1].WriteString(FSERVER_BAD)
+			dPipe[1].WriteString(utils.STATE_BAD)
 			continue
 		}
 
-		// phone driver: ok
-		dPipe[1].WriteString(FSERVER_OK)
-		
+		// clean up database
+		err = redi.CleanUp()
+
+		if err != nil {
+			log.Fatalln("clean up failed")
+		}
+
 		// fuxx command loop
-		length := len(testcase.commands)
+		var rediState string
+
+		length := len(testPtr.commands)
 		okCnt := length
-		
-		for index := 0 ; index < length ; index ++ {
 
-			recv,err = io.ReadAll(dPipe[0])
-			recvStr := string(recv)
+		for index := 0; index < length; index++ {
 
-			if err != nil {
-				log.Printf("err: Fuxx Server read %v.",err)
+			// execute command
+			cmd := testPtr.commands[index][CMD_TOKEN]
+			rediState = redi.Execute(cmd.([]string))
 
-				// phone driver: err
-				dPipe[1].WriteString(FSERVER_ERR)
-				return
-			}
-
-			switch recvStr {
+			switch rediState {
 
 			// command ok
-			case FSERVER_OK:
-				err := testcase.BuildGraph(index)
+			case utils.STATE_OK:
+				err := testPtr.BuildGraph(index)
 
 				if err != nil {
-					log.Printf("err: Build Gragh %v.",err)
+					log.Printf("err: Build Gragh %v.", err)
 				}
 
 			// command has fault
-			case FSERVER_BAD:
-				okCnt --
+			case utils.STATE_BAD:
+				log.Println("bad cmd:", index)
+				okCnt--
 
 			// command crash
-			case FSERVER_ERR:
-				file,err := os.OpenFile(testcase.hash,os.O_CREATE | os.O_WRONLY | os.O_TRUNC,0664)
+			case utils.STATE_ERR:
+				file, err := os.OpenFile(testPtr.hash, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0664)
 				crash := "[*] Found a crash :)"
 
 				// don't miss crash
@@ -274,28 +228,30 @@ func fuxxServer(target,tool string,dPipe,mPipe []*os.File){
 
 				file.WriteString(crash + "\n")
 				file.WriteString("index ==> " + indexStr + "\n")
-				file.WriteString(recvStr)
+				file.WriteString(origin)
 
 				// restart
-				db.StartUp(ftarget,ftool)
+				db.StartUp(ftarget, ftool)
 
-				testcase.Crash(index)
+				testPtr.Crash(index)
 			}
 
 			// phone driver: ok
-			dPipe[1].WriteString(FSERVER_OK)
+			dPipe[1].WriteString(utils.STATE_OK)
 
 		}
 
 		// drop testcase
 		if okCnt < CORPUS_MINLEN {
-			corpus.DropSet(testcase)
+			log.Println("dropped")
+			corpus.DropSet(testPtr)
 
 		// update weight
-		}else {
-			corpus.UpdateWeight(testcase)
+		} else {
+			corpus.UpdateWeight(testPtr)
 		}
 
+		// mutate
 		mutated := corpus.Mutate()
 
 		// write testcase to mutator

@@ -6,25 +6,16 @@ package main
 import "C"
 
 import (
-    "unsafe"
-    "io"
     "os"
     "log"
+    "unsafe"
+
+    "github.com/fuxxcss/redi2fuxx/pkg/utils"
 )
 
 // Fuxxer Server File
 const (
-	FDRIVER_R uintptr = iota +  3
-	FDRIVER_W
-	FMUTATOR_R
-	FMUTATOR_W
-)
-
-// Fuxxer Server phone string
-const (
-	FSERVER_OK string = "ok"
-	FSERVER_BAD string = "bad"
-	FSERVER_ERR string = "err"
+	FMUTATOR_R uintptr = iota +  5
 )
 
 /**
@@ -65,21 +56,22 @@ func afl_custom_init(afl *C.afl_state_t,seed uint32) *int {
 
 
 //export afl_custom_fuzz
-func afl_custom_fuzz(unused *int,buf *C.uint8_t,buf_size int,out_buf **C.uint8_t,
-add_buf *uint8,add_buf_size int,max_size int) int {
+func afl_custom_fuzz(unused *int, buf *C.uint8_t, buf_size int, out_buf **C.uint8_t,
+add_buf *uint8, add_buf_size int, max_size int) int {
     
     pipeR := os.NewFile(FMUTATOR_R, "Read")
 
     // read testcase
-    testcase,err := io.ReadAll(pipeR)
+    testcase := make([]byte,utils.STATE_LEN)
+    size, err := pipeR.Read(testcase)
 
     if err != nil {
         log.Fatalln("fuxxer io failed")
     }
 
-    *out_buf = (*C.uint8_t)(unsafe.Pointer(C.CString(string(testcase))))
+    *out_buf = (*C.uint8_t)(unsafe.Pointer(C.CString(string(testcase[:size]))))
 
-    return len(testcase)
+    return size
 }
 
 /**

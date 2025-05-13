@@ -5,7 +5,8 @@ const (
 	AFL string = "afl"
 	HonggFuzz string = "honggfuzz"
 
-	CoverageMap string = "SHM_ID"
+	CoverageMap string = "COVERAGE_MAP"
+	BaseTool string = "BASE_TOOL"
 )
 
 // tools features
@@ -14,15 +15,14 @@ type ToolsFeature int
 const (
 	// exe and args
 	TOOLS_EXE ToolsFeature = iota
-	TOOLS_DICT
 	TOOLS_TIMEOUT
 	TOOLS_INPUT
 	TOOLS_OUTPUT
-	TOOLS_DRIVER
 	// envs
 	TOOLS_ENV_DEBUG
 	TOOLS_ENV_DEBUG_SIZE
 	TOOLS_ENV_MAX_SIZE
+	TOOLS_ENV_SHM_ID
 	TOOLS_ENV_CUSTOM_FLAG
 	TOOLS_ENV_CUSTOM_PATH
 	TOOLS_ENV_SKIP_CPUFREQ
@@ -31,15 +31,15 @@ const (
 	TOOLS_ENV_FAST_CAL
 )
 
-var Tools = map[string]interface{} {
-	AFL : map[ToolsFeature]interface{} {
+type ToolsType map[ToolsFeature]string
+
+var Tools = map[string]ToolsType {
+	AFL : {
 		// exe and args
 		TOOLS_EXE : "afl-fuzz",
-		TOOLS_DICT : "-x",
 		TOOLS_TIMEOUT : "-t",
 		TOOLS_INPUT : "-i",
 		TOOLS_OUTPUT : "-o",
-		TOOLS_DRIVER : "--",
 		// envs
 		TOOLS_ENV_DEBUG : "AFL_DEBUG",
 		TOOLS_ENV_DEBUG_SIZE : "__afl_map_size",
@@ -53,8 +53,8 @@ var Tools = map[string]interface{} {
 		TOOLS_ENV_FAST_CAL : "AFL_FAST_CAL",
 		
 	},
-	HonggFuzz : map[string]interface{} {
+	HonggFuzz : {
 
-	}
+	},
 	
 }

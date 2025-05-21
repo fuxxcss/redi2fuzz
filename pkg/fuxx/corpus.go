@@ -5,7 +5,9 @@ import (
 	"errors"
 	"log"
 	"math/rand"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,9 +27,9 @@ const (
 )
 
 type Testcase struct {
-	hash   string
-	graph  []*Graph
-	weight float32
+	hash     string
+	graph    []*Graph
+	weight   float32
 	commands []Command
 }
 
@@ -62,7 +64,8 @@ func NewTestcase(testcase, hash string) *Testcase {
 
 	// redis split
 	sliceStr := strings.Split(testcase, db.RediSep)
-	testPtr.commands = make([]Command, len(sliceStr))
+	sliceSize := len(sliceStr)
+	testPtr.commands = make([]Command, sliceSize)
 
 	for i, str := range sliceStr {
 
@@ -75,8 +78,8 @@ func NewTestcase(testcase, hash string) *Testcase {
 		sliceToken := strings.Split(str, db.RediTokenSep)
 		tokens := make([]string, 0)
 
-		for _,token := range sliceToken {
-			if token != ""  {
+		for _, token := range sliceToken {
+			if token != "" {
 				tokens = append(tokens, token)
 			}
 		}
@@ -87,7 +90,7 @@ func NewTestcase(testcase, hash string) *Testcase {
 	}
 
 	testPtr.hash = hash
-	testPtr.graph = make([]*Graph, 1)
+	testPtr.graph = make([]*Graph, sliceSize)
 	testPtr.weight = float32(0)
 
 	return testPtr
@@ -98,7 +101,7 @@ func (self *Testcase) BuildGraph(index int) error {
 
 	redi := db.SingleRedi("")
 	snapshots, err := redi.Diff()
-
+	log.Println(snapshots)
 	if err != nil {
 		return err
 	}
@@ -106,7 +109,7 @@ func (self *Testcase) BuildGraph(index int) error {
 	// update weight
 	createLen := len(snapshots[0])
 	deleteLen := len(snapshots[1])
-
+	log.Println(createLen, deleteLen)
 	if createLen > 0 && deleteLen > 0 {
 		self.commands[index][CMD_ACTION] = CORPUS_FACTOR_MIX
 	} else if createLen > 0 {
@@ -119,6 +122,7 @@ func (self *Testcase) BuildGraph(index int) error {
 
 	// build graph
 	command := self.commands[index][CMD_TEXT].(string)
+	self.graph[index] = NewGraph()
 	self.graph[index].Build(snapshots, command)
 
 	return nil
@@ -130,12 +134,54 @@ func (self *Testcase) Crash(index int) {
 	self.commands[index][CMD_ACTION] = CORPUS_FACTOR_CRASH
 }
 
+// mutate str, int
+func (self *Testcase) Mutate(r *rand.Rand, index int) {
+
+	sliceToken := self.commands[index][CMD_TOKEN].([]string)
+
+	for i, token := range sliceToken {
+
+		// int mutate
+		_, errI := strconv.Atoi(token)
+		_, errF := strconv.ParseFloat(token, 32)
+
+		if errI == nil && errF == nil {
+			chosen := r.Intn(len(InterestingNum))
+			sliceToken[i] = InterestingNum[chosen]
+		}
+
+		// str mutate
+		sliceStr := strings.Split(token, db.RediStrSep)
+
+		if len(sliceStr) >= 3 {
+			sliceStr[1] = MutateStr(r, sliceStr[1])
+			mutatedStr := ""
+
+			// assemble
+			for _, str := range sliceStr {
+				mutatedStr += str + db.RediStrSep
+			}
+			sliceToken[i] = mutatedStr
+		}
+	}
+
+	// assemble
+	mutatedToken := ""
+
+	for _, token := range sliceToken {
+		mutatedToken += token + db.RediTokenSep
+	}
+
+	self.graph[index].cmdV.vdata = mutatedToken
+
+}
+
 // export
 func NewCorpus() *Corpus {
 
 	corpus := new(Corpus)
 	corpus.hashset = make(map[string]bool, CORPUS_THRESHOLD)
-	corpus.order = make([]*Testcase, CORPUS_THRESHOLD)
+	corpus.order = make([]*Testcase, 0)
 
 	return corpus
 }
@@ -170,8 +216,10 @@ func (self *Corpus) DropSet(testPtr *Testcase) {
 // public
 func (self *Corpus) UpdateWeight(testPtr *Testcase) {
 
+	orderSize := len(self.order)
+
 	length := len(testPtr.commands) * CORPUS_FACTOR_LEN
-	actions := len(self.order) * CORPUS_FACTOR_COV
+	actions := orderSize * CORPUS_FACTOR_COV
 
 	for _, cmd := range testPtr.commands {
 		actions += cmd[CMD_ACTION].(int)
@@ -179,14 +227,13 @@ func (self *Corpus) UpdateWeight(testPtr *Testcase) {
 
 	// calc weight
 	testPtr.weight = float32(actions) / float32(length)
-	log.Println(testPtr.weight)
+
 	// insert testPtr
-	pos := sort.Search(len(self.order), func(i int) bool { return self.order[i].weight >= testPtr.weight })
-	copy(self.order[(pos+1):], self.order[pos:])
-	self.order[pos] = testPtr
+	pos := sort.Search(orderSize, func(i int) bool { return self.order[i].weight >= testPtr.weight })
+	self.order = slices.Insert(self.order, pos, testPtr)
 
 	// threshold
-	if len(self.order) > CORPUS_THRESHOLD {
+	if orderSize > CORPUS_THRESHOLD {
 		self.order = self.order[1:]
 	}
 
@@ -197,6 +244,7 @@ func (self *Corpus) Select(r *rand.Rand) (*Testcase, int) {
 
 	// roulette wheel selection
 	sumFloat := float32(0)
+	
 	for _, testPtr := range self.order {
 		sumFloat += testPtr.weight
 	}
@@ -244,8 +292,8 @@ func (self *Corpus) Mutate() string {
 	length := r.Intn(CORPUS_MAXLEN-CORPUS_MINLEN) + CORPUS_MINLEN
 	mutated := ""
 
-	sliceGraph := make([]*Graph, 1)
-	
+	sliceGraph := make([]*Graph, 0)
+
 	for i := 0; i < length; i++ {
 
 		// select one command
@@ -273,11 +321,11 @@ func (self *Corpus) Mutate() string {
 		} else {
 
 			// mutate graph
-			graph.MutateGraph(r)
+			graph.Mutate(r)
 		}
 
-		// mutate str, int
-		graph.cmdV.vdata = MutateToken(r, graph.cmdV.vdata)
+		// mutate testcase
+		testPtr.Mutate(r, cmdIndex)
 
 		sliceGraph = append(sliceGraph, graph)
 		mutated += graph.cmdV.vdata + db.RediSep

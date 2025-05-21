@@ -28,7 +28,7 @@ type RediPair struct {
 }
 
 // snapshot meta data
-type Snapshot []*RediPair
+type Snapshot []RediPair
 
 // global
 var (
@@ -104,10 +104,16 @@ func (self *Redi) CleanUp() error {
 }
 
 // public
-func (self *Redi) Execute(args []string) string {
+func (self *Redi) Execute(tokens []string) string {
+
+	// marshal string
+	args := []interface{}{}
+	for _, token := range tokens {
+		args = append(args, token)
+	}
 
 	state := utils.STATE_OK
-	_, err := self.client.Do(self.ctx, args).Result()
+	_, err := self.client.Do(self.ctx, args...).Result()
 
 	// execute failed
 	if err != nil && err != redis.Nil {
@@ -132,14 +138,18 @@ func (self *Redi) Diff() ([3]Snapshot, error) {
 
 	var ret [3]Snapshot
 
+	// update new
 	new := make(Snapshot, 1)
-	err := self.collect(new)
+	err := self.collect(&new)
 
 	if err != nil {
 		return ret, err
 	}
 
 	old := self.snapshot
+
+	// update old
+	self.snapshot = new
 
 	for index, pair := range new {
 
@@ -160,32 +170,30 @@ func (self *Redi) Diff() ([3]Snapshot, error) {
 	}
 
 	ret[2] = new
-
+	
 	return ret, nil
 
 }
 
 // private
-func (self *Redi) collect(snapshot Snapshot) error {
+func (self *Redi) collect(snapshot *Snapshot) error {
 
-	keys, err := self.client.Keys(self.ctx, "*").Result()
+	keys, _ := self.client.Keys(self.ctx, "*").Result()
 
-	// redis query engine, type = "none"
+	// redis stack query engine, type = "none"
 	ft, err := self.client.Do(self.ctx, "FT._LIST").Text()
-	keys = append(keys, ft)
-
-	// Keys failed
-	if err != nil {
-		return errors.New("KEYS * failed.")
+	
+	if err == nil {
+		keys = append(keys, ft)
 	}
 
 	// keys
 	for _, key := range keys {
 
-		pair := new(RediPair)
+		var pair RediPair
 		pair.Key = key
 		pair.Field = ""
-		snapshot = append(snapshot, pair)
+		*snapshot = append(*snapshot, pair)
 
 		keyType, err := self.client.Type(self.ctx, key).Result()
 
@@ -195,7 +203,7 @@ func (self *Redi) collect(snapshot Snapshot) error {
 		}
 
 		// func map
-		fmap := map[string]func(string, Snapshot) error{
+		fmap := map[string]func(string, *Snapshot) error{
 			"hash": self.collectHash,
 			// "geo" : collect geo,
 			"stream": self.collectStream,
@@ -218,7 +226,7 @@ func (self *Redi) collect(snapshot Snapshot) error {
 
 }
 
-func (self *Redi) collectHash(key string, snapshot Snapshot) error {
+func (self *Redi) collectHash(key string, snapshot *Snapshot) error {
 
 	fields, err := self.client.HKeys(self.ctx, key).Result()
 
@@ -228,17 +236,17 @@ func (self *Redi) collectHash(key string, snapshot Snapshot) error {
 	}
 
 	for _, field := range fields {
-		pair := new(RediPair)
+		var pair RediPair
 		pair.Key = key
 		pair.Field = field
-		snapshot = append(snapshot, pair)
+		*snapshot = append(*snapshot, pair)
 	}
 
 	return nil
 
 }
 
-func (self *Redi) collectStream(key string, snapshot Snapshot) error {
+func (self *Redi) collectStream(key string, snapshot *Snapshot) error {
 
 	entries, err := self.client.XRange(self.ctx, key, "-", "+").Result()
 
@@ -248,10 +256,10 @@ func (self *Redi) collectStream(key string, snapshot Snapshot) error {
 
 	for _, entry := range entries {
 		for field := range entry.Values {
-			pair := new(RediPair)
+			var pair RediPair
 			pair.Key = key
 			pair.Field = field
-			snapshot = append(snapshot, pair)
+			*snapshot = append(*snapshot, pair)
 		}
 	}
 

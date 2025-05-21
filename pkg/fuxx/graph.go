@@ -3,7 +3,6 @@ package fuxx
 import (
     "strings"
     "slices"
-    "strconv"
     "math/rand"
 
     "github.com/fuxxcss/redi2fuxx/pkg/db"
@@ -29,6 +28,14 @@ type Vertex struct {
     vdata string
     prev []*Vertex
     next []*Vertex
+}
+
+func NewGraph() *Graph {
+
+    graph := new(Graph)
+    graph.sliceV = make([]*Vertex, 0)
+
+    return graph
 }
 
 func (self *Graph) AddVertex(isCmd VertexType, data string) *Vertex{
@@ -62,7 +69,7 @@ func (self *Graph) Build(snapshots [3]db.Snapshot, command string) {
     self.cmdV = self.AddVertex(cmdVertex, command)
 
     // deal with create
-    keyMap := make(map[string]*Vertex, 1)
+    keyMap := make(map[string]*Vertex, 0)
 
     for _, pair := range snapshots[0] {
         key := pair.Key
@@ -215,8 +222,8 @@ func (self *Graph) Build(snapshots [3]db.Snapshot, command string) {
 func (self *Graph) Match(graph *Graph) bool {
 
     // select all keys
-    matchKeys := make([]*Vertex, 1)
-    hasKeys := make([]*Vertex, 1)
+    matchKeys := make([]*Vertex, 0)
+    hasKeys := make([]*Vertex, 0)
 
     // fieldVertex.prev must be one key
     for _, matchV := range self.cmdV.prev {
@@ -326,7 +333,7 @@ func MutateStr(r *rand.Rand, str string) string {
 }
 
 // key, field mutate
-func (self *Graph) MutateGraph(r *rand.Rand) {
+func (self *Graph) Mutate(r *rand.Rand) {
 
     len := len(self.sliceV)
 
@@ -345,53 +352,3 @@ func (self *Graph) MutateGraph(r *rand.Rand) {
     }
 
 }
-
-// str, int mutate
-func MutateToken(r *rand.Rand, cmdStr string) string {
-
-    sliceToken := strings.Split(cmdStr, db.RediTokenSep)
-
-    for i, token := range sliceToken {
-
-        // int mutate
-        _, errI := strconv.Atoi(token)
-        _, errF := strconv.ParseFloat(token, 32)
-
-        if errI == nil && errF == nil {
-
-            chosen := r.Intn(len(InterestingNum))
-            sliceToken[i] = InterestingNum[chosen]
-        }
-
-        // str mutate
-        sliceStr := strings.Split(token, db.RediStrSep)
-
-        if len(sliceStr) >= 3 {
-
-            sliceStr[1] = MutateStr(r, sliceStr[1])
-
-            mutatedStr := ""
-
-            // assemble
-            for _, str := range sliceStr {
-                
-                mutatedStr += str + db.RediStrSep
-            }
-
-            sliceToken[i] = mutatedStr
-        }
-    }
-
-    // assemble
-    mutatedToken := ""
-
-    for _, token := range sliceToken {
-
-        mutatedToken += token + db.RediTokenSep
-    }
-
-    return mutatedToken
-
-}
-
-

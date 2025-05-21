@@ -172,7 +172,7 @@ func fuxxServer(target, tool string, dPipe, mPipe []*os.File) {
 		// bad testcase, skip it
 		origin := string(recv[:size])
 		testPtr, err := corpus.AddSet(origin)
-		
+
 		if err != nil {
 			dPipe[1].WriteString(utils.STATE_BAD)
 			continue
@@ -194,8 +194,8 @@ func fuxxServer(target, tool string, dPipe, mPipe []*os.File) {
 		for index := 0; index < length; index++ {
 
 			// execute command
-			cmd := testPtr.commands[index][CMD_TOKEN]
-			rediState = redi.Execute(cmd.([]string))
+			tokens := testPtr.commands[index][CMD_TOKEN]
+			rediState = redi.Execute(tokens.([]string))
 
 			switch rediState {
 
@@ -246,14 +246,14 @@ func fuxxServer(target, tool string, dPipe, mPipe []*os.File) {
 			log.Println("dropped")
 			corpus.DropSet(testPtr)
 
-		// update weight
+			// update weight
 		} else {
 			corpus.UpdateWeight(testPtr)
 		}
 
 		// mutate
 		mutated := corpus.Mutate()
-
+		log.Println(mutated)
 		// write testcase to mutator
 		mPipe[1].WriteString(mutated)
 	}

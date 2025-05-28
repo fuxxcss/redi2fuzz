@@ -106,7 +106,7 @@ func Fuxx(target, tool string) {
 	// use asan env
 	os.Setenv(ftool[utils.TOOLS_ENV_USE_ASAN], "1")
 	// fast cal env
-	os.Setenv(ftool[utils.TOOLS_ENV_FAST_CAL], "1")
+	os.Setenv(ftool[utils.TOOLS_ENV_NO_CAL], "1")
 
 	// run fuxxer
 	err = fuxxProc.Start()
@@ -253,7 +253,7 @@ func fuxxServer(target, tool string, dPipe, mPipe []*os.File) {
 
 		// mutate
 		mutated := corpus.Mutate()
-		log.Println(mutated)
+
 		// write testcase to mutator
 		mPipe[1].WriteString(mutated)
 	}

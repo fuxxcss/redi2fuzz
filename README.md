@@ -104,7 +104,7 @@ please do thease after dbms init.
 ### afl build
 in order to use shmem for afl-fuzz, dbms server.<br>
 rewrite afl-sharedmem.c afl_shm_init()
-``` shell
+``` c
 char *id_str = getenv("COVERAGE_MAP");
 if (id_str) {
   shm->shm_id = atoi(id_str);
@@ -115,11 +115,21 @@ if (id_str) {
 }
 ```
 add 
-``` shell
+``` c
 setvbuf(stdout,NULL,_IOLBF,0);
 setvbuf(stderr,NULL,_IOLBF,0);
 ```
-into afl-fuzz.c main()
+delete !afl->afl_env.afl_skip_bin_check
+```c
+if (!afl->non_instrumented_mode && !afl->fsrv.qemu_mode &&
+      !afl->unicorn_mode && !afl->fsrv.frida_mode && !afl->fsrv.cs_mode &&
+      !afl->afl_env.afl_skip_bin_check) {
+to
+if (!afl->non_instrumented_mode && !afl->fsrv.qemu_mode &&
+      !afl->unicorn_mode && !afl->fsrv.frida_mode && !afl->fsrv.cs_mode) {
+
+```
+in afl-fuzz.c main()
 
 #### afl-clang-lto
 in order to use afl-clang-lto, for example, your llvm version is 16 and lld-16 was installed.
@@ -172,3 +182,16 @@ fuxx different redis (maybe need to trash /root/dump.rdb first) :
 [CVE-2024-55656] RedisBloom –  Integer Overflow RCE
 ```
 3. analysis bugs
+
+4. fix
+
+NO CAL
+afl-fuzz-run.c 
+sync_fuzzers(){
+
+line: 821 
+
+(void)write_to_testcase(afl, (void **)&mem, st.st_size, 1);
+
+fault = fuzz_run_target(afl, &afl->fsrv, afl->fsrv.exec_tmout);
+} 

@@ -3,7 +3,6 @@ package fuxx
 import (
 	"crypto/md5"
 	"errors"
-	"log"
 	"math/rand"
 	"slices"
 	"sort"
@@ -101,7 +100,7 @@ func (self *Testcase) BuildGraph(index int) error {
 
 	redi := db.SingleRedi("")
 	snapshots, err := redi.Diff()
-	log.Println(snapshots)
+
 	if err != nil {
 		return err
 	}
@@ -109,7 +108,7 @@ func (self *Testcase) BuildGraph(index int) error {
 	// update weight
 	createLen := len(snapshots[0])
 	deleteLen := len(snapshots[1])
-	log.Println(createLen, deleteLen)
+
 	if createLen > 0 && deleteLen > 0 {
 		self.commands[index][CMD_ACTION] = CORPUS_FACTOR_MIX
 	} else if createLen > 0 {
@@ -290,11 +289,12 @@ func (self *Corpus) Mutate() string {
 
 	// mutated len
 	length := r.Intn(CORPUS_MAXLEN-CORPUS_MINLEN) + CORPUS_MINLEN
+
 	mutated := ""
 
 	sliceGraph := make([]*Graph, 0)
 
-	for i := 0; i < length; i++ {
+	for i := 0; i < length; {
 
 		// select one command
 		testPtr, cmdIndex := self.Select(r)
@@ -329,6 +329,9 @@ func (self *Corpus) Mutate() string {
 
 		sliceGraph = append(sliceGraph, graph)
 		mutated += graph.cmdV.vdata + db.RediSep
+
+		// one line is ready
+		i ++
 	}
 
 	return mutated

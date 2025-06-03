@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"slices"
 	"sync"
+	"strings"
 
 	"github.com/fuxxcss/redi2fuxx/pkg/utils"
 	"github.com/redis/go-redis/v9"
@@ -38,6 +39,8 @@ var (
 
 type Redi struct {
 	Proc     *exec.Cmd
+	args 	[]string
+	path 	string
 	snapshot Snapshot
 	client   *redis.Client
 	ctx      context.Context
@@ -69,10 +72,33 @@ func NewRedi(port string) *Redi {
 	})
 
 	redi.Proc = nil
-	redi.snapshot = make(Snapshot, 1)
+	redi.snapshot = make(Snapshot, 0)
 	redi.ctx = context.Background()
 
 	return redi
+}
+
+// public
+func (self *Redi) Restart() {
+
+	self.Proc = exec.Command(self.path, self.args...)
+	err := self.Proc.Start()
+
+	// db failed
+	if err != nil {
+		log.Fatalln("err: redi failed.")
+	}
+
+	// waiting redi startup
+	for {
+		alive := self.CheckAlive()
+		if alive {
+			break
+		}
+	}
+
+	// db succeed
+	log.Printf("[*] DB %v StartUp.\n", self.path)
 }
 
 // public
@@ -101,6 +127,28 @@ func (self *Redi) CleanUp() error {
 	}
 
 	return nil
+}
+
+// public
+func (self *Redi) SplitLine(str string) []string {
+
+	return strings.Split(str, RediSep)
+}
+
+// public
+func (self *Redi) SplitToken(str string) []string {
+
+	sliceToken := strings.Split(str, RediTokenSep)
+	tokens := make([]string, 0)
+
+	for _, token := range sliceToken {
+		if token != "" {
+			tokens = append(tokens, token)
+		}
+	}
+
+	return tokens
+
 }
 
 // public
@@ -139,7 +187,7 @@ func (self *Redi) Diff() ([3]Snapshot, error) {
 	var ret [3]Snapshot
 
 	// update new
-	new := make(Snapshot, 1)
+	new := make(Snapshot, 0)
 	err := self.collect(&new)
 
 	if err != nil {
@@ -151,11 +199,14 @@ func (self *Redi) Diff() ([3]Snapshot, error) {
 	// update old
 	self.snapshot = new
 
-	for index, pair := range new {
+	for index := len(new)-1; index >= 0; index --  {
+
+		pair := new[index]
 
 		// create pair
 		if !slices.Contains(old, pair) {
 			ret[0] = append(ret[0], pair)
+			
 			// keep others
 			new = slices.Delete(new, index, index+1)
 		}

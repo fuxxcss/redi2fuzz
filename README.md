@@ -185,13 +185,6 @@ fuxx different redis (maybe need to trash /root/dump.rdb first) :
 
 4. fix
 
-NO CAL
-afl-fuzz-run.c 
-sync_fuzzers(){
+mutating...
+CPU 100% MEM 80%
 
-line: 821 
-
-(void)write_to_testcase(afl, (void **)&mem, st.st_size, 1);
-
-fault = fuzz_run_target(afl, &afl->fsrv, afl->fsrv.exec_tmout);
-} 

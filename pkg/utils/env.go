@@ -8,11 +8,6 @@ const (
 	STATE_ERR string = "err"
 )
 
-// testcase maxsize
-const (
-	MaxSize int = 0x100000
-)
-
 // fuxx targets
 const (
 	Redis string = "redis"
@@ -26,25 +21,29 @@ type TargetFeature int
 const (
 	TARGET_PORT TargetFeature = iota
 	TARGET_PATH
+	QUEUE_PATH
 )
 
 type TargetsType map[TargetFeature]string
 
 var Targets = map[string]TargetsType {
 	// Redis
-	Redis : TargetsType {
+	Redis : {
 		TARGET_PORT : "6379",
 		TARGET_PATH : "/usr/local/redis/src/redis-server",
+		QUEUE_PATH : "queue/redis",
 	},
 	// KeyDB
-	KeyDB : TargetsType {
+	KeyDB : {
 		TARGET_PORT : "6380",
 		TARGET_PATH : "/usr/local/keydb/src/keydb-server",
+		QUEUE_PATH : "queue/redis",
 	},
 	// RediStack
-	RediStack : TargetsType {
+	RediStack : {
 		TARGET_PORT : "6381",
 		TARGET_PATH : "/usr/local/redis/src/redis-stack-server",
+		QUEUE_PATH : "queue/redis-stack",
 	},
 }
 

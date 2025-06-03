@@ -2,8 +2,10 @@ package fuxx
 
 import (
 	"crypto/md5"
-	"errors"
+	"log"
 	"math/rand"
+	"os"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strconv"
@@ -34,9 +36,8 @@ type Testcase struct {
 
 // corpus max
 const (
-	CORPUS_MINLEN    int = 15
-	CORPUS_MAXLEN    int = 45
-	CORPUS_THRESHOLD int = 50
+	CORPUS_MINLEN int = 15
+	CORPUS_MAXLEN int = 45
 )
 
 // corpus factor
@@ -57,12 +58,12 @@ type Corpus struct {
 }
 
 // export
-func NewTestcase(testcase, hash string) *Testcase {
+func NewTestcase(redi *db.Redi, testcase,hash string) *Testcase {
 
 	testPtr := new(Testcase)
 
-	// redis split
-	sliceStr := strings.Split(testcase, db.RediSep)
+	// split
+	sliceStr := redi.SplitLine(testcase)
 	sliceSize := len(sliceStr)
 	testPtr.commands = make([]Command, sliceSize)
 
@@ -74,14 +75,7 @@ func NewTestcase(testcase, hash string) *Testcase {
 		testPtr.commands[i][CMD_TEXT] = str
 
 		// args
-		sliceToken := strings.Split(str, db.RediTokenSep)
-		tokens := make([]string, 0)
-
-		for _, token := range sliceToken {
-			if token != "" {
-				tokens = append(tokens, token)
-			}
-		}
+		tokens := redi.SplitToken(str)
 		testPtr.commands[i][CMD_TOKEN] = tokens
 
 		// action
@@ -176,11 +170,34 @@ func (self *Testcase) Mutate(r *rand.Rand, index int) {
 }
 
 // export
-func NewCorpus() *Corpus {
+func NewCorpus(redi *db.Redi, path string) *Corpus {
 
 	corpus := new(Corpus)
-	corpus.hashset = make(map[string]bool, CORPUS_THRESHOLD)
+	corpus.hashset = make(map[string]bool, 0)
 	corpus.order = make([]*Testcase, 0)
+
+	// add all testcase
+	filepath.Walk(path, func(file string, info os.FileInfo, err error) error {
+
+		if err != nil {
+			log.Fatalln("err: wrong queue path.")
+		}
+
+		if info.IsDir() {
+			return nil
+		}
+
+		// read file
+		content, err := os.ReadFile(file)
+
+		if err != nil {
+			log.Println("err: read queue failed.",file)
+		}
+
+		corpus.AddSet(redi, content)
+
+		return nil
+	})
 
 	return corpus
 }
@@ -188,28 +205,21 @@ func NewCorpus() *Corpus {
 // public
 // if exist return nil,err
 // else     return ptr,nil
-func (self *Corpus) AddSet(testcase string) (*Testcase, error) {
+func (self *Corpus) AddSet(redi *db.Redi, testcase []byte) {
 
 	// repeat testcase
-	sum := md5.Sum([]byte(testcase))
+	sum := md5.Sum(testcase)
 	hash := string(sum[:])
 
 	_, ok := self.hashset[hash]
-	if ok {
-		return nil, errors.New("Repeat Testcase.")
-	}
 
 	// new testcase
-	self.hashset[hash] = true
+	if !ok {
 
-	return NewTestcase(testcase, hash), nil
+		self.hashset[hash] = true
+		self.order = append(self.order, NewTestcase(redi, string(testcase), hash))
+	}
 
-}
-
-// public
-func (self *Corpus) DropSet(testPtr *Testcase) {
-
-	delete(self.hashset, testPtr.hash)
 }
 
 // public
@@ -231,11 +241,6 @@ func (self *Corpus) UpdateWeight(testPtr *Testcase) {
 	pos := sort.Search(orderSize, func(i int) bool { return self.order[i].weight >= testPtr.weight })
 	self.order = slices.Insert(self.order, pos, testPtr)
 
-	// threshold
-	if orderSize > CORPUS_THRESHOLD {
-		self.order = self.order[1:]
-	}
-
 }
 
 // public
@@ -243,7 +248,7 @@ func (self *Corpus) Select(r *rand.Rand) (*Testcase, int) {
 
 	// roulette wheel selection
 	sumFloat := float32(0)
-	
+
 	for _, testPtr := range self.order {
 		sumFloat += testPtr.weight
 	}
@@ -331,7 +336,7 @@ func (self *Corpus) Mutate() string {
 		mutated += graph.cmdV.vdata + db.RediSep
 
 		// one line is ready
-		i ++
+		i++
 	}
 
 	return mutated

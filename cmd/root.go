@@ -8,14 +8,13 @@ import (
 
 var (
 	fuxxTarget string
-	fuxxTool string
 )
 
 // rootCmd : default without args
 var rootCmd = &cobra.Command{
 	Use:   "redi2fuxx",
 	Short: "A fuxxing tool for redis.",
-	Long:  `A fuxxing tool for redis-based dbms with three mutation modes.`,
+	Long:  `A fuxxing tool for redis-based dbms with graph mutation mode.`,
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
@@ -23,7 +22,6 @@ var rootCmd = &cobra.Command{
 func Execute() {
 
 	rootCmd.PersistentFlags().StringVarP(&fuxxTarget, "target", "t", "redis", "Fuxx Target (redis, keydb, redis-stack)")
-	rootCmd.PersistentFlags().StringVarP(&fuxxTool, "tool", "T", "afl", "Fuxx Base (afl, honggfuzz)")
 	err := rootCmd.Execute()
 	
 	if err != nil {

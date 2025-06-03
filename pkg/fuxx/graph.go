@@ -1,354 +1,351 @@
 package fuxx
 
 import (
-    "strings"
-    "slices"
-    "math/rand"
+	"math/rand"
+	"slices"
+	"strings"
 
-    "github.com/fuxxcss/redi2fuxx/pkg/db"
+	"github.com/fuxxcss/redi2fuxx/pkg/db"
 )
 
 type VertexType int
 
 const (
-    cmdVertex VertexType = iota
-    keyVertex 
-    fieldVertex
+	cmdVertex VertexType = iota
+	keyVertex
+	fieldVertex
 )
 
 type Graph struct {
-
-    cmdV *Vertex
-    sliceV []*Vertex
+	cmdV   *Vertex
+	sliceV []*Vertex
 }
 
 type Vertex struct {
-
-    vtype VertexType
-    vdata string
-    prev []*Vertex
-    next []*Vertex
+	vtype VertexType
+	vdata string
+	prev  []*Vertex
+	next  []*Vertex
 }
 
 func NewGraph() *Graph {
 
-    graph := new(Graph)
-    graph.sliceV = make([]*Vertex, 0)
+	graph := new(Graph)
+	graph.sliceV = make([]*Vertex, 0)
 
-    return graph
+	return graph
 }
 
-func (self *Graph) AddVertex(isCmd VertexType, data string) *Vertex{
+func (self *Graph) AddVertex(isCmd VertexType, data string) *Vertex {
 
-    vertex := new(Vertex)
-    vertex.vtype = isCmd
-    vertex.vdata = data
-    self.sliceV = append(self.sliceV, vertex)
+	vertex := new(Vertex)
+	vertex.vtype = isCmd
+	vertex.vdata = data
+	self.sliceV = append(self.sliceV, vertex)
 
-    return vertex
+	return vertex
 }
 
 func (self *Graph) Contains(data string) bool {
 
-    isContains := false
-    for _, vertex := range self.sliceV {
+	isContains := false
+	for _, vertex := range self.sliceV {
 
-        // contains data
-        if vertex.vtype != cmdVertex && vertex.vdata == data {
-            isContains = true
-            break
-        }
-    }
-    return isContains
+		// contains data
+		if vertex.vtype != cmdVertex && vertex.vdata == data {
+			isContains = true
+			break
+		}
+	}
+	return isContains
 }
-
 
 func (self *Graph) Build(snapshots [3]db.Snapshot, command string) {
 
-    // cmd vertex
-    self.cmdV = self.AddVertex(cmdVertex, command)
+	// cmd vertex
+	self.cmdV = self.AddVertex(cmdVertex, command)
 
-    // deal with create
-    keyMap := make(map[string]*Vertex, 0)
+	// deal with create
+	keyMap := make(map[string]*Vertex, 0)
 
-    for _, pair := range snapshots[0] {
-        key := pair.Key
-        field := pair.Field
+	for _, pair := range snapshots[0] {
+		key := pair.Key
+		field := pair.Field
 
-        // create key
-        if field == "" {
-            keyV := self.AddVertex(keyVertex, key)
-            keyMap[key] = keyV
-            
-            // edge (cmd, key)
-            // cmd -> key
-            self.cmdV.next = append(self.cmdV.next, keyV)
-            keyV.prev = append(keyV.prev, self.cmdV)
-        }
-    }
+		// create key
+		if field == "" {
+			keyV := self.AddVertex(keyVertex, key)
+			keyMap[key] = keyV
 
-    for _, pair := range snapshots[0] {
-        key := pair.Key
-        field := pair.Field
+			// edge (cmd, key)
+			// cmd -> key
+			self.cmdV.next = append(self.cmdV.next, keyV)
+			keyV.prev = append(keyV.prev, self.cmdV)
+		}
+	}
 
-        // create field
-        if field != "" {
-            fieldV := self.AddVertex(fieldVertex, field)
+	for _, pair := range snapshots[0] {
+		key := pair.Key
+		field := pair.Field
 
-            // edge (key, field)
-            // cmd -> key -> field
-            if keyV,ok := keyMap[key] ; ok {
-                keyV.next = append(keyV.next, fieldV)
-                fieldV.prev = append(fieldV.prev, keyV)
+		// create field
+		if field != "" {
+			fieldV := self.AddVertex(fieldVertex, field)
 
-            // edge (cmd, field), (key, cmd), (key, field)
-            // key -> cmd -> field
-            //  '-------------^
-            }else {
-                self.cmdV.next = append(self.cmdV.next, fieldV)
-                fieldV.prev = append(fieldV.prev, self.cmdV)
+			// edge (key, field)
+			// cmd -> key -> field
+			if keyV, ok := keyMap[key]; ok {
+				keyV.next = append(keyV.next, fieldV)
+				fieldV.prev = append(fieldV.prev, keyV)
 
-                keyV := self.AddVertex(keyVertex, key)
-                keyMap[key] = keyV
+				// edge (cmd, field), (key, cmd), (key, field)
+				// key -> cmd -> field
+				//  '-------------^
+			} else {
+				self.cmdV.next = append(self.cmdV.next, fieldV)
+				fieldV.prev = append(fieldV.prev, self.cmdV)
 
-                keyV.next = append(keyV.next, self.cmdV)
-                self.cmdV.prev = append(self.cmdV.prev, keyV)
+				keyV := self.AddVertex(keyVertex, key)
+				keyMap[key] = keyV
 
-                keyV.next = append(keyV.next, fieldV)
-                fieldV.prev = append(fieldV.prev, keyV)
-            }
-        }
-    }
+				keyV.next = append(keyV.next, self.cmdV)
+				self.cmdV.prev = append(self.cmdV.prev, keyV)
 
-    // deal with delete
-    clear(keyMap)
+				keyV.next = append(keyV.next, fieldV)
+				fieldV.prev = append(fieldV.prev, keyV)
+			}
+		}
+	}
 
-    for _, pair := range snapshots[1] {
-        key := pair.Key
-        field := pair.Field
+	// deal with delete
+	clear(keyMap)
 
-        // delete key
-        if field == "" {
-            keyV := self.AddVertex(keyVertex, key)
-            keyMap[key] = keyV
-            
-            // edge (key, cmd)
-            // key -> cmd
-            self.cmdV.prev = append(self.cmdV.prev, keyV)
-            keyV.next = append(keyV.next, self.cmdV)
-        }
-    }
+	for _, pair := range snapshots[1] {
+		key := pair.Key
+		field := pair.Field
 
-    for _, pair := range snapshots[1] {
-        key := pair.Key
-        field := pair.Field
+		// delete key
+		if field == "" {
+			keyV := self.AddVertex(keyVertex, key)
+			keyMap[key] = keyV
 
-        // delete field
-        if field != "" {
-            fieldV := self.AddVertex(fieldVertex, field)
+			// edge (key, cmd)
+			// key -> cmd
+			self.cmdV.prev = append(self.cmdV.prev, keyV)
+			keyV.next = append(keyV.next, self.cmdV)
+		}
+	}
 
-            // edge (key, field)
-            // field <- key -> cmd
-            if keyV, ok := keyMap[key] ; ok {
-                keyV.next = append(keyV.next, fieldV)
-                fieldV.prev = append(fieldV.prev, keyV)
+	for _, pair := range snapshots[1] {
+		key := pair.Key
+		field := pair.Field
 
-            // edge (field, cmd), (key, field)
-            // key -> field -> cmd
-            }else {
-                self.cmdV.prev = append(self.cmdV.prev, fieldV)
-                fieldV.next = append(fieldV.next, self.cmdV)
+		// delete field
+		if field != "" {
+			fieldV := self.AddVertex(fieldVertex, field)
 
-                keyV := self.AddVertex(keyVertex, key)
-                keyMap[key] = keyV
+			// edge (key, field)
+			// field <- key -> cmd
+			if keyV, ok := keyMap[key]; ok {
+				keyV.next = append(keyV.next, fieldV)
+				fieldV.prev = append(fieldV.prev, keyV)
 
-                keyV.next = append(keyV.next, fieldV)
-                fieldV.prev = append(fieldV.prev, keyV)
-            }
-        }
-    }
+				// edge (field, cmd), (key, field)
+				// key -> field -> cmd
+			} else {
+				self.cmdV.prev = append(self.cmdV.prev, fieldV)
+				fieldV.next = append(fieldV.next, self.cmdV)
 
-    // deal with keep
-    clear(keyMap)
+				keyV := self.AddVertex(keyVertex, key)
+				keyMap[key] = keyV
 
-    for _, pair := range snapshots[2] {
-        key := pair.Key
-        field := pair.Field
+				keyV.next = append(keyV.next, fieldV)
+				fieldV.prev = append(fieldV.prev, keyV)
+			}
+		}
+	}
 
-        // keep key
-        if field == "" && strings.Contains(command, key) && !self.Contains(key) {
-            keyV := self.AddVertex(keyVertex, key)
-            keyMap[key] = keyV
-            
-            // edge (key, cmd)
-            // key -> cmd
-            self.cmdV.prev = append(self.cmdV.prev, keyV)
-            keyV.next = append(keyV.next, self.cmdV)
-        }
-    }
+	// deal with keep
+	clear(keyMap)
 
-    for _, pair := range snapshots[2] {
-        key := pair.Key
-        field := pair.Field
+	for _, pair := range snapshots[2] {
+		key := pair.Key
+		field := pair.Field
 
-        // keep field
-        if field != "" && strings.Contains(command, field) && !self.Contains(field) {
-            fieldV := self.AddVertex(fieldVertex, field)
+		// keep key
+		if field == "" && strings.Contains(command, key) && !self.Contains(key) {
+			keyV := self.AddVertex(keyVertex, key)
+			keyMap[key] = keyV
 
-            // edge (key, field)
-            // field <- key -> cmd
-            if keyV, ok := keyMap[key] ; ok {
-                keyV.next = append(keyV.next, fieldV)
-                fieldV.prev = append(fieldV.prev, keyV)
+			// edge (key, cmd)
+			// key -> cmd
+			self.cmdV.prev = append(self.cmdV.prev, keyV)
+			keyV.next = append(keyV.next, self.cmdV)
+		}
+	}
 
-            // edge (field, cmd), (key, field)
-            // key -> field -> cmd 
-            }else {
-                self.cmdV.prev = append(self.cmdV.prev, fieldV)
-                fieldV.next = append(fieldV.next, self.cmdV)
+	for _, pair := range snapshots[2] {
+		key := pair.Key
+		field := pair.Field
 
-                keyV := self.AddVertex(keyVertex, key)
-                keyMap[key] = keyV
+		// keep field
+		if field != "" && strings.Contains(command, field) && !self.Contains(field) {
+			fieldV := self.AddVertex(fieldVertex, field)
 
-                keyV.next = append(keyV.next, fieldV)
-                fieldV.prev = append(fieldV.prev, keyV)
-            }
-        }
-    }
+			// edge (key, field)
+			// field <- key -> cmd
+			if keyV, ok := keyMap[key]; ok {
+				keyV.next = append(keyV.next, fieldV)
+				fieldV.prev = append(fieldV.prev, keyV)
+
+				// edge (field, cmd), (key, field)
+				// key -> field -> cmd
+			} else {
+				self.cmdV.prev = append(self.cmdV.prev, fieldV)
+				fieldV.next = append(fieldV.next, self.cmdV)
+
+				keyV := self.AddVertex(keyVertex, key)
+				keyMap[key] = keyV
+
+				keyV.next = append(keyV.next, fieldV)
+				fieldV.prev = append(fieldV.prev, keyV)
+			}
+		}
+	}
 
 }
 
 // public
 func (self *Graph) Match(graph *Graph) bool {
 
-    // select all keys
-    matchKeys := make([]*Vertex, 0)
-    hasKeys := make([]*Vertex, 0)
+	// select all keys
+	matchKeys := make([]*Vertex, 0)
+	hasKeys := make([]*Vertex, 0)
 
-    // fieldVertex.prev must be one key
-    for _, matchV := range self.cmdV.prev {
+	// fieldVertex.prev must be one key
+	for _, matchV := range self.cmdV.prev {
 
-        if matchV.vtype == fieldVertex {
+		if matchV.vtype == fieldVertex {
 
-            matchV = matchV.prev[0]
+			matchV = matchV.prev[0]
 
-            // alreay selected
-            if slices.Contains(matchKeys, matchV) {
-                continue
-            }
-        }
-        matchKeys = append(matchKeys, matchV)
-    }
-    
-    for _, hasV := range graph.cmdV.next {
+			// alreay selected
+			if slices.Contains(matchKeys, matchV) {
+				continue
+			}
+		}
+		matchKeys = append(matchKeys, matchV)
+	}
 
-        if hasV.vtype == fieldVertex {
+	for _, hasV := range graph.cmdV.next {
 
-            hasV = hasV.prev[0]
+		if hasV.vtype == fieldVertex {
 
-            // alreay selected
-            if slices.Contains(hasKeys, hasV) {
-                continue
-            }
-        }
-        hasKeys = append(hasKeys, hasV)
-    }
-    
-    // match self -> graph
-    for _, match := range matchKeys {
+			hasV = hasV.prev[0]
 
-        // match len
-        matchLen := 0
-        for _, matchNext := range match.next {
-            if matchNext.vtype == fieldVertex {
-                matchLen ++
-            }
-        }
+			// alreay selected
+			if slices.Contains(hasKeys, hasV) {
+				continue
+			}
+		}
+		hasKeys = append(hasKeys, hasV)
+	}
 
-        isMatched := false
+	// match self -> graph
+	for _, match := range matchKeys {
 
-        for _, has := range hasKeys {
+		// match len
+		matchLen := 0
+		for _, matchNext := range match.next {
+			if matchNext.vtype == fieldVertex {
+				matchLen++
+			}
+		}
 
-            // has len
-            hasLen := 0
-            for _, hasNext := range has.next {
-                if hasNext.vtype == fieldVertex {
-                    hasLen ++
-                }
-            }
+		isMatched := false
 
-            // match succeed
-            if matchLen <= hasLen {
+		for _, has := range hasKeys {
 
-                isMatched = true
+			// has len
+			hasLen := 0
+			for _, hasNext := range has.next {
+				if hasNext.vtype == fieldVertex {
+					hasLen++
+				}
+			}
 
-                // need to patch
-                self.cmdV.vdata = strings.Replace(self.cmdV.vdata, match.vdata, has.vdata, -1)
-                match.vdata = has.vdata
+			// match succeed
+			if matchLen <= hasLen {
 
-                for i := 0 ; i < matchLen ; i ++ {
+				isMatched = true
 
-                    self.cmdV.vdata = strings.Replace(self.cmdV.vdata, match.next[i].vdata, has.next[1].vdata, -1)
-                    match.next[i].vdata = has.next[1].vdata
-                }
+				// need to patch
+				self.cmdV.vdata = strings.Replace(self.cmdV.vdata, match.vdata, has.vdata, -1)
+				match.vdata = has.vdata
 
-                break
-            }
-            
-        }
+				for i := 0; i < matchLen; i++ {
 
-        // match failed
-        if !isMatched {
+					self.cmdV.vdata = strings.Replace(self.cmdV.vdata, match.next[i].vdata, has.next[1].vdata, -1)
+					match.next[i].vdata = has.next[1].vdata
+				}
 
-            return false
-        }
-    }
-    
-    return true
+				break
+			}
+
+		}
+
+		// match failed
+		if !isMatched {
+
+			return false
+		}
+	}
+
+	return true
 }
 
 func MutateStr(r *rand.Rand, str string) string {
 
-    item := r.Intn(len(InterestingStr))
-    chosen := InterestingStr[item]
+	item := r.Intn(len(InterestingStr))
+	chosen := InterestingStr[item]
 
-    switch item {
+	switch item {
 
-    // empty
-    case InterestEmpty:
-        return chosen
+	// empty
+	case InterestEmpty:
+		return chosen
 
-    // null, terminal, hex, short str
-    case InterestNULL,InterestTerminal, InterestHex, InterestLong:
-        return str + chosen
+	// null, terminal, hex, short str
+	case InterestNULL, InterestTerminal, InterestHex, InterestLong:
+		return str + chosen
 
-    // special
-    case InterestSpecial:
-        special := r.Intn(len(chosen))
-        return str + string(chosen[special])
-    }
+	// special
+	case InterestSpecial:
+		special := r.Intn(len(chosen))
+		return str + string(chosen[special])
+	}
 
-    return ""
-    
+	return ""
+
 }
 
 // key, field mutate
 func (self *Graph) Mutate(r *rand.Rand) {
 
-    len := len(self.sliceV)
+	len := len(self.sliceV)
 
-    for i := 0; i <= len ; i *= 2 {
+	for i := 1; i <= len; i *= 2 {
 
-        index := r.Intn(len)
-        vertex := self.sliceV[index]
-    
-        // only mutate key, field, avoid token mutate
-        if vertex.vtype != cmdVertex && !strings.Contains(vertex.vdata, db.RediStrSep){
-            
-            mutatedData := MutateStr(r, vertex.vdata)
-            self.cmdV.vdata = strings.Replace(self.cmdV.vdata, vertex.vdata, mutatedData, -1)
-            vertex.vdata = mutatedData
-        }
-    }
+		index := r.Intn(len)
+		vertex := self.sliceV[index]
+
+		// only mutate key, field, avoid token mutate
+		if vertex.vtype != cmdVertex && !strings.Contains(vertex.vdata, db.RediStrSep) {
+
+			mutatedData := MutateStr(r, vertex.vdata)
+			self.cmdV.vdata = strings.Replace(self.cmdV.vdata, vertex.vdata, mutatedData, -1)
+			vertex.vdata = mutatedData
+		}
+	}
 
 }

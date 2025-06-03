@@ -3,7 +3,7 @@ package fuxx
 import (
 	"log"
 	"os"
-	"os/exec"
+	"crypto/md5"
 	"os/signal"
 	"strconv"
 	"syscall"
@@ -13,14 +13,7 @@ import (
 )
 
 // export
-func Fuxx(target, tool string) {
-
-	// Fuxx Tool (afl, honggfuzz)
-	ftool, ok := utils.Tools[tool]
-
-	if !ok {
-		log.Fatalf("err: %v tool is not support\n", tool)
-	}
+func Fuxx(target string) {
 
 	// Fuxx Target (redis, keydb, redis-stack)
 	ftarget, ok := utils.Targets[target]
@@ -30,98 +23,16 @@ func Fuxx(target, tool string) {
 	}
 
 	// StartUp target first
-	shm := db.StartUp(ftarget, ftool)
+	db.StartUp(ftarget)
 	defer db.ShutDown()
 
-	// driver testcase string pipe for ipc
-	strRead, strWrite, err := os.Pipe()
-	if err != nil {
-		log.Panicf("err: fserver string pipe failed %v\n", err)
-	}
-
-	// driver control pipe for ipc
-	ctlRead, ctlWrite, err := os.Pipe()
-	if err != nil {
-		log.Panicf("err: fserver control pipe failed %v\n", err)
-	}
-
-	dPipe := []*os.File{
-		strRead,
-		ctlWrite,
-	}
-
-	// mutator pipe for ipc
-	mutRead, mutWrite, err := os.Pipe()
-	if err != nil {
-		log.Panicf("err: fserver mutate pipe failed %v\n", err)
-	}
-
-	mPipe := []*os.File{
-		mutWrite,
-	}
-
-	// fuxx with rpipe,wpipe
-	exe := ftool[utils.TOOLS_EXE]
-	args := []string{
-		// timeout
-		ftool[utils.TOOLS_TIMEOUT] + " " + "5000",
-		// input
-		ftool[utils.TOOLS_INPUT] + "fuzz/input/" + target,
-		// output
-		ftool[utils.TOOLS_OUTPUT] + "fuzz/output/" + target,
-		// driver
-		"build/driver",
-	}
-
-	fuxxProc := exec.Command(exe, args...)
-	fuxxProc.ExtraFiles = []*os.File{
-		// driver pipe
-		ctlRead,
-		strWrite,
-		// mutator pipe
-		mutRead,
-	}
-
-	// fuxx printer
-	fuxxProc.Stdout = os.Stdout
-	fuxxProc.Stderr = os.Stderr
-
-	// fuxx envs
-	// coverage map env must be set
-	os.Setenv(utils.CoverageMap, shm.ShmID)
-	// fuxx tool
-	os.Setenv(utils.BaseTool, tool)
-	// debug env
-	os.Setenv(ftool[utils.TOOLS_ENV_DEBUG], "0")
-	// max size env
-	os.Setenv(ftool[utils.TOOLS_ENV_MAX_SIZE], shm.ShmSize)
-	// custom flag env
-	os.Setenv(ftool[utils.TOOLS_ENV_CUSTOM_FLAG], "1")
-	// custom path env
-	os.Setenv(ftool[utils.TOOLS_ENV_CUSTOM_PATH], "build/libmutator.so")
-	// skip cpufreq env
-	os.Setenv(ftool[utils.TOOLS_ENV_SKIP_CPUFREQ], "1")
-	// skip bin check env
-	os.Setenv(ftool[utils.TOOLS_ENV_SKIP_BIN_CHECK], "1")
-	// use asan env
-	os.Setenv(ftool[utils.TOOLS_ENV_USE_ASAN], "1")
-	// fast cal env
-	os.Setenv(ftool[utils.TOOLS_ENV_NO_CAL], "1")
-
-	// run fuxxer
-	err = fuxxProc.Start()
-	defer fuxxProc.Process.Kill()
-
-	// failed
-	if err != nil {
-		log.Panicf("err: fuxx proc %v\n", err)
-	}
-
-	// succeed
 	chanExit := make(chan struct{})
 
+	// exit control
 	go signalCtl(chanExit)
-	go fuxxServer(target, tool, dPipe, mPipe)
+
+	// fuxx server
+	go fuxxServer(target)
 
 	// exit
 	<-chanExit
@@ -141,120 +52,157 @@ func signalCtl(chanExit chan<- struct{}) {
 }
 
 // static
-func fuxxServer(target, tool string, dPipe, mPipe []*os.File) {
+func fuxxLoop(redi *db.Redi, ptr *Testcase) {
+
+	// fuxx command loop
+	var rediState string
+
+	length := len(ptr.commands)
+	okCnt := length
+
+	for index := 0; index < length; index ++ {
+
+		// execute command
+		tokens := ptr.commands[index][CMD_TOKEN]
+		rediState = redi.Execute(tokens.([]string))
+
+		switch rediState {
+
+		// command ok
+		case utils.STATE_OK:
+			err := ptr.BuildGraph(index)
+
+			if err != nil {
+				log.Printf("err: Build Gragh %v.", err)
+			}
+
+		// command has fault
+		case utils.STATE_BAD:
+			log.Println("bad cmd:", ptr.commands[index][CMD_TEXT])
+			okCnt --
+
+		// command crash
+		case utils.STATE_ERR:
+			file, err := os.OpenFile(ptr.hash, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0664)
+			crash := "[*] Found a crash :)"
+
+			// don't miss crash
+			if err != nil {
+				
+				var lover []string
+
+				for _,cmd := range ptr.commands {
+					lover = append(lover, cmd[CMD_TEXT].(string))
+				}
+
+				log.Println(crash)
+				log.Fatalln(lover)
+			}
+
+			// log crash
+			ptr.Crash(index)
+			indexStr := strconv.Itoa(index)
+
+			file.WriteString(crash + "\n")
+			file.WriteString("index ==> " + indexStr + "\n")
+
+			for _,cmd := range ptr.commands {
+
+				file.WriteString(cmd[CMD_TEXT].(string))
+			}
+
+			// restart
+			redi.Restart()
+
+		}
+
+	}
+
+	// bad testcase
+	if okCnt < CORPUS_MINLEN {
+
+		log.Println("bad queue.")
+	}
+
+}
+
+// static
+func fuxxServer(target string) {
 
 	ftarget := utils.Targets[target]
-	ftool := utils.Tools[tool]
-
-	// init corpus
-	corpus := NewCorpus()
 
 	// init redi
 	redi := db.SingleRedi(ftarget[utils.TARGET_PORT])
 
-	// init buffer
-	recv := make([]byte, utils.MaxSize)
+	// init corpus
+	corpus := NewCorpus(redi, ftarget[utils.QUEUE_PATH])
 
-	// fuxx loop
-	for {
-
-		// read testcase from driver
-		size, err := dPipe[0].Read(recv)
-
-		if err != nil {
-			log.Printf("err: Fuxx Server read %v.", err)
-
-			// phone driver: err
-			dPipe[1].WriteString(utils.STATE_ERR)
-			return
-		}
-
-		// bad testcase, skip it
-		origin := string(recv[:size])
-		testPtr, err := corpus.AddSet(origin)
-
-		if err != nil {
-			dPipe[1].WriteString(utils.STATE_BAD)
-			continue
-		}
+	for _,testPtr := range corpus.order {
 
 		// clean up database
-		err = redi.CleanUp()
+		err := redi.CleanUp()
 
 		if err != nil {
 			log.Fatalln("clean up failed")
 		}
 
-		// fuxx command loop
+		fuxxLoop(redi,testPtr)
+		corpus.UpdateWeight(testPtr)
+	}
+
+	// fuxx loop
+	tryCnt := 0
+	var mutated string
+	var lines []string
+	var tokens []string
+	for {
+
 		var rediState string
 
-		length := len(testPtr.commands)
-		okCnt := length
+		log.Println("mutating...")
+		// mutate
+		mutated = corpus.Mutate()
+		log.Println("mutate done")
 
-		for index := 0; index < length; index++ {
+		lines = redi.SplitLine(mutated)
+		
+		for index, line := range lines {
 
-			// execute command
-			tokens := testPtr.commands[index][CMD_TOKEN]
-			rediState = redi.Execute(tokens.([]string))
-
-			switch rediState {
-
-			// command ok
-			case utils.STATE_OK:
-				err := testPtr.BuildGraph(index)
-
-				if err != nil {
-					log.Printf("err: Build Gragh %v.", err)
-				}
-
-			// command has fault
-			case utils.STATE_BAD:
-				log.Println("bad cmd:", index)
-				okCnt--
+			tokens = redi.SplitToken(line)
+			rediState = redi.Execute(tokens)
 
 			// command crash
-			case utils.STATE_ERR:
-				file, err := os.OpenFile(testPtr.hash, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0664)
-				crash := "[*] Found a crash :)"
+			if rediState == utils.STATE_ERR {
 
+				sum := md5.Sum([]byte(mutated))
+				hash := string(sum[:])
+				file, err := os.OpenFile(hash, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0664)
+				crash := "[*] Found a crash :)"
+	
 				// don't miss crash
 				if err != nil {
+					
 					log.Println(crash)
-					return
+					log.Fatalln(mutated)
 				}
-
+	
 				// log crash
 				indexStr := strconv.Itoa(index)
-
+	
 				file.WriteString(crash + "\n")
 				file.WriteString("index ==> " + indexStr + "\n")
-				file.WriteString(origin)
-
+				file.WriteString(mutated)
+	
 				// restart
-				db.StartUp(ftarget, ftool)
-
-				testPtr.Crash(index)
+				redi.Restart()
+	
 			}
-
-			// phone driver: ok
-			dPipe[1].WriteString(utils.STATE_OK)
-
 		}
 
-		// drop testcase
-		if okCnt < CORPUS_MINLEN {
-			log.Println("dropped")
-			corpus.DropSet(testPtr)
+		tryCnt ++
 
-			// update weight
-		} else {
-			corpus.UpdateWeight(testPtr)
+		if tryCnt % 100 == 0 {
+			log.Println("trying ...", tryCnt)
 		}
-
-		// mutate
-		mutated := corpus.Mutate()
-
-		// write testcase to mutator
-		mPipe[1].WriteString(mutated)
 	}
 }

@@ -6,8 +6,8 @@ import (
 	"log"
 	"os/exec"
 	"slices"
-	"sync"
 	"strings"
+	"sync"
 
 	"github.com/fuxxcss/redi2fuxx/pkg/utils"
 	"github.com/redis/go-redis/v9"
@@ -38,12 +38,15 @@ var (
 )
 
 type Redi struct {
-	Proc     *exec.Cmd
-	args 	[]string
-	path 	string
+	// proc
+	path string
+	args []string
+	Proc *exec.Cmd
+	// snapshot
 	snapshot Snapshot
-	client   *redis.Client
-	ctx      context.Context
+	// env
+	client *redis.Client
+	ctx    context.Context
 }
 
 // export
@@ -126,6 +129,8 @@ func (self *Redi) CleanUp() error {
 		return err
 	}
 
+	self.snapshot = make(Snapshot, 0)
+
 	return nil
 }
 
@@ -152,7 +157,7 @@ func (self *Redi) SplitToken(str string) []string {
 }
 
 // public
-func (self *Redi) Execute(tokens []string) string {
+func (self *Redi) Execute(tokens []string) (string,error) {
 
 	// marshal string
 	args := []interface{}{}
@@ -165,7 +170,7 @@ func (self *Redi) Execute(tokens []string) string {
 
 	// execute failed
 	if err != nil && err != redis.Nil {
-		log.Println(err)
+
 		// execute error
 		if self.CheckAlive() {
 			state = utils.STATE_BAD
@@ -176,7 +181,7 @@ func (self *Redi) Execute(tokens []string) string {
 		}
 	}
 
-	return state
+	return state, err
 
 }
 
@@ -194,34 +199,41 @@ func (self *Redi) Diff() ([3]Snapshot, error) {
 		return ret, err
 	}
 
-	old := self.snapshot
-
+	old := self.snapshot.Copy()
+	/*
+	log.Println("old snapshot")
+	old.Debug()
+	*/
 	// update old
-	self.snapshot = new
-
-	for index := len(new)-1; index >= 0; index --  {
-
-		pair := new[index]
+	self.snapshot = new.Copy()
+	/*
+	log.Println("new snapshot")
+	new.Debug()
+	*/
+	// loop create, keep
+	cnt := 0
+	for index, pair := range self.snapshot {
 
 		// create pair
-		if !slices.Contains(old, pair) {
+		if !old.Contains(pair) {
 			ret[0] = append(ret[0], pair)
-			
-			// keep others
-			new = slices.Delete(new, index, index+1)
+
+			// keep others, delete cnt ++
+			new = slices.Delete(new, index-cnt, index-cnt+1)
+			cnt++
 		}
 	}
 
 	for _, pair := range old {
 
 		// delete pair
-		if !slices.Contains(new, pair) {
+		if !self.snapshot.Contains(pair) {
 			ret[1] = append(ret[1], pair)
 		}
 	}
 
 	ret[2] = new
-	
+
 	return ret, nil
 
 }
@@ -233,7 +245,7 @@ func (self *Redi) collect(snapshot *Snapshot) error {
 
 	// redis stack query engine, type = "none"
 	ft, err := self.client.Do(self.ctx, "FT._LIST").Text()
-	
+
 	if err == nil {
 		keys = append(keys, ft)
 	}
@@ -316,3 +328,61 @@ func (self *Redi) collectStream(key string, snapshot *Snapshot) error {
 
 	return nil
 }
+
+// public
+func (self *Snapshot) Contains(pair RediPair) bool {
+
+	isContains := false
+	for _, p := range *self {
+
+		// contains key, field
+		if p.Key == pair.Key && p.Field == pair.Field {
+			isContains = true
+			break
+		}
+	}
+	return isContains
+
+}
+
+// public
+func (self *Snapshot) Copy() Snapshot {
+
+	new := make(Snapshot, 0)
+	for _, pair := range *self {
+		new = append(new, pair)
+	}
+	return new
+
+}
+
+// debug
+func (self *Snapshot) Debug() {
+
+	for _, pair := range *self {
+		k := pair.Key
+		f := pair.Field
+		log.Println("key", k, "size", len(k), " -> ", "field", f, "size", len(f))
+	}
+}
+
+// debug
+func DiffDebug(snapshots [3]Snapshot) {
+
+	if len(snapshots[0]) > 0 {
+		log.Println("create snapshot")
+		snapshots[0].Debug()
+	}
+
+	if len(snapshots[1]) > 0 {
+		log.Println("delete snapshot")
+		snapshots[1].Debug()
+	}
+
+	if len(snapshots[2]) > 0 {
+		log.Println("keep snapshot")
+		snapshots[2].Debug()
+	}
+}
+
+

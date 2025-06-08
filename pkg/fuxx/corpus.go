@@ -94,7 +94,10 @@ func (self *Testcase) BuildGraph(index int) error {
 
 	redi := db.SingleRedi("")
 	snapshots, err := redi.Diff()
-
+	/*
+	log.Println("snapshot:")
+	db.DiffDebug(snapshots)
+	*/
 	if err != nil {
 		return err
 	}
@@ -117,7 +120,10 @@ func (self *Testcase) BuildGraph(index int) error {
 	command := self.commands[index][CMD_TEXT].(string)
 	self.graph[index] = NewGraph()
 	self.graph[index].Build(snapshots, command)
-
+	/*
+	log.Println("graph:")
+	self.graph[index].Debug()
+	*/
 	return nil
 }
 
@@ -322,7 +328,6 @@ func (self *Corpus) Mutate() string {
 			if !isMatched {
 				continue
 			}
-
 		} else {
 
 			// mutate graph

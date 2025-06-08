@@ -1,13 +1,14 @@
 package fuxx
 
 import (
+	"crypto/md5"
+	"fmt"
 	"log"
 	"os"
-	"crypto/md5"
 	"os/signal"
 	"strconv"
 	"syscall"
-	//"gopkg.in/yaml.v3"
+
 	"github.com/fuxxcss/redi2fuxx/pkg/db"
 	"github.com/fuxxcss/redi2fuxx/pkg/utils"
 )
@@ -46,7 +47,7 @@ func signalCtl(chanExit chan<- struct{}) {
 	signal.Notify(chanSig, os.Interrupt, syscall.SIGTERM)
 	<-chanSig
 
-	log.Println("[*] Fuxx Proc is Killed.")
+	fmt.Println("[*] Fuxx Proc is Killed.")
 	chanExit <- struct{}{}
 
 }
@@ -56,15 +57,16 @@ func fuxxLoop(redi *db.Redi, ptr *Testcase) {
 
 	// fuxx command loop
 	var rediState string
+	var err error
 
 	length := len(ptr.commands)
 	okCnt := length
 
-	for index := 0; index < length; index ++ {
+	for index := 0; index < length; index++ {
 
 		// execute command
 		tokens := ptr.commands[index][CMD_TOKEN]
-		rediState = redi.Execute(tokens.([]string))
+		rediState, err = redi.Execute(tokens.([]string))
 
 		switch rediState {
 
@@ -78,8 +80,9 @@ func fuxxLoop(redi *db.Redi, ptr *Testcase) {
 
 		// command has fault
 		case utils.STATE_BAD:
-			log.Println("bad cmd:", ptr.commands[index][CMD_TEXT])
-			okCnt --
+			fmt.Println("[*] bad cmd:", ptr.commands[index][CMD_TEXT])
+			fmt.Println(err)
+			okCnt--
 
 		// command crash
 		case utils.STATE_ERR:
@@ -88,14 +91,14 @@ func fuxxLoop(redi *db.Redi, ptr *Testcase) {
 
 			// don't miss crash
 			if err != nil {
-				
+
 				var lover []string
 
-				for _,cmd := range ptr.commands {
+				for _, cmd := range ptr.commands {
 					lover = append(lover, cmd[CMD_TEXT].(string))
 				}
 
-				log.Println(crash)
+				fmt.Println(crash)
 				log.Fatalln(lover)
 			}
 
@@ -106,7 +109,7 @@ func fuxxLoop(redi *db.Redi, ptr *Testcase) {
 			file.WriteString(crash + "\n")
 			file.WriteString("index ==> " + indexStr + "\n")
 
-			for _,cmd := range ptr.commands {
+			for _, cmd := range ptr.commands {
 
 				file.WriteString(cmd[CMD_TEXT].(string))
 			}
@@ -121,7 +124,7 @@ func fuxxLoop(redi *db.Redi, ptr *Testcase) {
 	// bad testcase
 	if okCnt < CORPUS_MINLEN {
 
-		log.Println("bad queue.")
+		fmt.Println("[*] bad queue.")
 	}
 
 }
@@ -136,8 +139,33 @@ func fuxxServer(target string) {
 
 	// init corpus
 	corpus := NewCorpus(redi, ftarget[utils.QUEUE_PATH])
+	fmt.Println("[*] init corpus.")
 
-	for _,testPtr := range corpus.order {
+	for _, testPtr := range corpus.order {
+
+		// clean up database and redi snapshot
+		err := redi.CleanUp()
+
+		if err != nil {
+			log.Fatalln("err: clean up failed")
+		}
+
+		fuxxLoop(redi, testPtr)
+		corpus.UpdateWeight(testPtr)
+	}
+
+	// fuxx loop
+	var mutated string
+	var lines []string
+	var tokens []string
+	tryCnt := 0
+
+	for {
+
+		var rediState string
+
+		// mutate
+		mutated = corpus.Mutate()
 
 		// clean up database
 		err := redi.CleanUp()
@@ -146,30 +174,19 @@ func fuxxServer(target string) {
 			log.Fatalln("clean up failed")
 		}
 
-		fuxxLoop(redi,testPtr)
-		corpus.UpdateWeight(testPtr)
-	}
-
-	// fuxx loop
-	tryCnt := 0
-	var mutated string
-	var lines []string
-	var tokens []string
-	for {
-
-		var rediState string
-
-		log.Println("mutating...")
-		// mutate
-		mutated = corpus.Mutate()
-		log.Println("mutate done")
-
 		lines = redi.SplitLine(mutated)
-		
+
 		for index, line := range lines {
 
 			tokens = redi.SplitToken(line)
-			rediState = redi.Execute(tokens)
+			rediState, err = redi.Execute(tokens)
+
+			// print
+			fmt.Printf("fuxx count: %d\n", tryCnt)
+			fmt.Printf("fuxx line: %s\n", line)
+			if err != nil {
+				fmt.Println(err)
+			}
 
 			// command crash
 			if rediState == utils.STATE_ERR {
@@ -178,31 +195,27 @@ func fuxxServer(target string) {
 				hash := string(sum[:])
 				file, err := os.OpenFile(hash, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0664)
 				crash := "[*] Found a crash :)"
-	
+
 				// don't miss crash
 				if err != nil {
-					
-					log.Println(crash)
+
+					fmt.Println(crash)
 					log.Fatalln(mutated)
 				}
-	
+
 				// log crash
 				indexStr := strconv.Itoa(index)
-	
+
 				file.WriteString(crash + "\n")
 				file.WriteString("index ==> " + indexStr + "\n")
 				file.WriteString(mutated)
-	
+
 				// restart
 				redi.Restart()
-	
+
 			}
 		}
 
-		tryCnt ++
-
-		if tryCnt % 100 == 0 {
-			log.Println("trying ...", tryCnt)
-		}
+		tryCnt++
 	}
 }

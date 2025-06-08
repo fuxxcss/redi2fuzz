@@ -21,7 +21,7 @@ var	InterestingStr = []string {
 	"\r",					 // terminal
 	"\xff\xfe",				 // hex
 	"\";+-*>([",			 // special
-	strings.Repeat("a", 100000), // long str
+	strings.Repeat("a", 4097), // long str
 }
 
 // interesting nums

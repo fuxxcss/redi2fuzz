@@ -185,6 +185,5 @@ fuxx different redis (maybe need to trash /root/dump.rdb first) :
 
 4. fix
 
-mutating...
-CPU 100% MEM 80%
+- queue ERR
 

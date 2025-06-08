@@ -1,8 +1,8 @@
 package fuxx
 
 import (
+	"log"
 	"math/rand"
-	"slices"
 	"strings"
 
 	"github.com/fuxxcss/redi2fuxx/pkg/db"
@@ -218,64 +218,76 @@ func (self *Graph) Build(snapshots [3]db.Snapshot, command string) {
 // public
 func (self *Graph) Match(graph *Graph) bool {
 
+	/*
+	log.Println("before match")
+	self.Debug()
+	graph.Debug()
+	*/
 	// select all keys
-	matchKeys := make([]*Vertex, 0)
-	hasKeys := make([]*Vertex, 0)
+	matchKeys := make(map[*Vertex]int, 0)
+	hasKeys := make(map[*Vertex]int, 0)
 
 	// fieldVertex.prev must be one key
 	for _, matchV := range self.cmdV.prev {
 
+		// key to match
 		if matchV.vtype == fieldVertex {
 
 			matchV = matchV.prev[0]
 
 			// alreay selected
-			if slices.Contains(matchKeys, matchV) {
+			if _, ok := matchKeys[matchV]; ok {
 				continue
 			}
 		}
-		matchKeys = append(matchKeys, matchV)
+
+		// field num
+		nextSize := 0
+		for _, matchNext := range matchV.next {
+
+			if matchNext.vtype == fieldVertex {
+				nextSize++
+			}
+		}
+
+		matchKeys[matchV] = nextSize
 	}
 
+	// fieldVertex.prev must be one key
 	for _, hasV := range graph.cmdV.next {
 
+		// key has
 		if hasV.vtype == fieldVertex {
 
 			hasV = hasV.prev[0]
 
 			// alreay selected
-			if slices.Contains(hasKeys, hasV) {
+			if _, ok := hasKeys[hasV]; ok {
 				continue
 			}
 		}
-		hasKeys = append(hasKeys, hasV)
-	}
 
-	// match self -> graph
-	for _, match := range matchKeys {
+		// field num
+		nextSize := 0
+		for _, hasNext := range hasV.next {
 
-		// match len
-		matchLen := 0
-		for _, matchNext := range match.next {
-			if matchNext.vtype == fieldVertex {
-				matchLen++
+			if hasNext.vtype == fieldVertex {
+				nextSize++
 			}
 		}
 
+		hasKeys[hasV] = nextSize
+	}
+
+	// match self -> graph
+	for match, matchSize := range matchKeys {
+
 		isMatched := false
 
-		for _, has := range hasKeys {
-
-			// has len
-			hasLen := 0
-			for _, hasNext := range has.next {
-				if hasNext.vtype == fieldVertex {
-					hasLen++
-				}
-			}
+		for has, hasSize := range hasKeys {
 
 			// match succeed
-			if matchLen <= hasLen {
+			if matchSize <= hasSize {
 
 				isMatched = true
 
@@ -283,15 +295,14 @@ func (self *Graph) Match(graph *Graph) bool {
 				self.cmdV.vdata = strings.Replace(self.cmdV.vdata, match.vdata, has.vdata, -1)
 				match.vdata = has.vdata
 
-				for i := 0; i < matchLen; i++ {
+				for i := 0; i < matchSize; i++ {
 
-					self.cmdV.vdata = strings.Replace(self.cmdV.vdata, match.next[i].vdata, has.next[1].vdata, -1)
-					match.next[i].vdata = has.next[1].vdata
+					self.cmdV.vdata = strings.Replace(self.cmdV.vdata, match.next[i].vdata, has.next[0].vdata, -1)
+					match.next[i].vdata = has.next[0].vdata
 				}
 
 				break
 			}
-
 		}
 
 		// match failed
@@ -334,7 +345,7 @@ func (self *Graph) Mutate(r *rand.Rand) {
 
 	len := len(self.sliceV)
 
-	for i := 1; i <= len; i *= 2 {
+	for i := 0; i <= len / 2; i ++ {
 
 		index := r.Intn(len)
 		vertex := self.sliceV[index]
@@ -344,8 +355,35 @@ func (self *Graph) Mutate(r *rand.Rand) {
 
 			mutatedData := MutateStr(r, vertex.vdata)
 			self.cmdV.vdata = strings.Replace(self.cmdV.vdata, vertex.vdata, mutatedData, -1)
-			vertex.vdata = mutatedData
+			self.sliceV[index].vdata = mutatedData
 		}
 	}
 
+}
+
+// debug
+func (self *Graph) Debug() {
+
+	log.Println("cmdV type",self.cmdV.vtype)
+	log.Println("cmdV data",self.cmdV.vdata)
+
+	log.Println("cmdV prev")
+	for _, p := range self.cmdV.prev {
+		log.Println("type", p.vtype, p.vdata,"size", len(p.vdata), "-> cmdV")
+	}
+
+	log.Println("cmdV next")
+	for _, n := range self.cmdV.next {
+		log.Println("cmdV ->","type", n.vtype, n.vdata, "size", len(n.vdata))
+	}
+
+	log.Println("all vertexs")
+	for _,v := range self.sliceV {
+		if v.vtype != cmdVertex {
+			log.Println("vertex type",v.vtype, v.vdata, "size", len(v.vdata))
+			for _, n := range v.next {
+				log.Println(v.vdata," ->", n.vdata, "size", len(n.vdata))
+			}
+		}
+	}
 }

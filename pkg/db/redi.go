@@ -1,98 +1,143 @@
 package db
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log"
+	"os"
 	"os/exec"
-	"slices"
-	"strings"
-	"sync"
 
-	"github.com/fuxxcss/redi2fuxx/pkg/utils"
+	"github.com/fuxxcss/redi2fuzz/pkg/utils"
+	"github.com/fuxxcss/redi2fuzz/pkg/model"
 	"github.com/redis/go-redis/v9"
 )
 
-// Redi strings
-const (
-	RediSep      string = "\n"
-	RediTokenSep string = " "
-	RediStrSep   string = "\""
-	RediPort     string = "--port"
-)
+/*
+ * Redi Definition
+ */
 
-// Redi Pair
-// different key can have same field name
-type RediPair struct {
-	Key   string
-	Field string
-}
-
-// snapshot meta data
-type Snapshot []RediPair
-
-// global
-var (
-	globalRedi *Redi
-	mutexRedi  sync.Mutex
-)
-
+/*	Redi Struct	*/
 type Redi struct {
-	// proc
+
+	// proc ...
 	path string
 	args []string
-	Proc *exec.Cmd
-	// snapshot
-	snapshot Snapshot
-	// env
+	stderr bytes.Buffer
+	proc *exec.Cmd
+
+	// runtime ...
 	client *redis.Client
 	ctx    context.Context
 }
 
-// export
-func SingleRedi(port string) *Redi {
+const (
+	RediLineSep	 string = "\n"
+	RediTokenSep string = " "
+)
 
-	if globalRedi == nil {
-		mutexRedi.Lock()
-		defer mutexRedi.Unlock()
-		if globalRedi == nil {
-			globalRedi = NewRedi(port)
-		}
-	}
-	return globalRedi
-}
 
-// export
-func NewRedi(port string) *Redi {
+/*
+ * Redi Functions
+ */
+
+func NewRedi(feature utils.TargetFeature) *Redi {
+
+	// set global sep
+	model.LineSep = RediLineSep
+	model.TokenSep = RediTokenSep
 
 	redi := new(Redi)
 
-	// redi connect
+	// path, port
+	var path, port string
+
+	path = feature[utils.TARGET_PATH]
+	port = feature[utils.TARGET_PORT]
+
+	// cannot find path
+	_, err := os.Stat(path)
+
+	if err != nil {
+		log.Fatalf("err: %s %v", path, err)
+	}
+
+	redi.path = path
+	
+	// redi runtime
 	redi.client = redis.NewClient(&redis.Options{
 		Addr:     "localhost:" + port,
 		Password: "",
 		DB:       0,
 	})
 
-	redi.Proc = nil
-	redi.snapshot = make(Snapshot, 0)
 	redi.ctx = context.Background()
 
+	// check alive
+	alive := redi.CheckAlive()
+
+	// already startup, shutdown first
+	if alive {
+		redi.client.Do(redi.ctx,"shutdown")
+	}
+
+	// redi args
+	redi.args = []string{
+		// port
+		"--port" + " " + port,
+	}
+
 	return redi
+
 }
 
+/*
+ * Redi Interface
+ */
+
+// Redi Struct
 // public
-func (self *Redi) Restart() {
+func (self *Redi) StartUp() error {
 
-	self.Proc = exec.Command(self.path, self.args...)
-	err := self.Proc.Start()
+	self.proc = exec.Command(self.path, self.args...)
+	self.proc.Stderr = &self.stderr
 
-	// db failed
+	// error
+	err := self.proc.Start()
+
+	// startup failed
 	if err != nil {
-		log.Fatalln("err: redi failed.")
+		return err
 	}
 
 	// waiting redi startup
+	fmt.Println("[*] waiting redi startup...")
+	for {
+		alive := self.CheckAlive()
+		if alive {
+			break
+		}
+	}
+
+	// succeed
+	fmt.Printf("[*] Redi %s StartUp.\n", self.path)
+
+	return nil
+}
+
+// public
+func (self *Redi) Restart() error {
+
+	err := self.proc.Start()
+
+	// restart failed
+	if err != nil {
+		return err
+	}
+
+	// waiting redi restart
+	fmt.Println("[*] waiting redi restart...")
 	for {
 		alive := self.CheckAlive()
 		if alive {
@@ -101,7 +146,17 @@ func (self *Redi) Restart() {
 	}
 
 	// db succeed
-	log.Printf("[*] DB %v StartUp.\n", self.path)
+	fmt.Printf("[*] Redi %v ReStart.\n", self.path)
+
+	return nil
+}
+
+// public
+func (self *Redi) ShutDown() {
+
+	// kill redi
+	self.proc.Process.Kill()
+
 }
 
 // public
@@ -116,7 +171,6 @@ func (self *Redi) CheckAlive() bool {
 	}
 
 	return true
-
 }
 
 // public
@@ -129,43 +183,22 @@ func (self *Redi) CleanUp() error {
 		return err
 	}
 
-	self.snapshot = make(Snapshot, 0)
-
 	return nil
 }
 
 // public
-func (self *Redi) SplitLine(str string) []string {
-
-	return strings.Split(str, RediSep)
-}
-
-// public
-func (self *Redi) SplitToken(str string) []string {
-
-	sliceToken := strings.Split(str, RediTokenSep)
-	tokens := make([]string, 0)
-
-	for _, token := range sliceToken {
-		if token != "" {
-			tokens = append(tokens, token)
-		}
-	}
-
-	return tokens
-
-}
-
-// public
-func (self *Redi) Execute(tokens []string) (string,error) {
+func (self *Redi) Execute(tokens []string) (utils.TargetState, error) {
 
 	// marshal string
 	args := []interface{}{}
+
 	for _, token := range tokens {
 		args = append(args, token)
 	}
 
+	// state
 	state := utils.STATE_OK
+
 	_, err := self.client.Do(self.ctx, args...).Result()
 
 	// execute failed
@@ -173,11 +206,11 @@ func (self *Redi) Execute(tokens []string) (string,error) {
 
 		// execute error
 		if self.CheckAlive() {
-			state = utils.STATE_BAD
-
-			// crash
-		} else {
 			state = utils.STATE_ERR
+
+		// crash
+		} else {
+			state = utils.STATE_CRASH
 		}
 	}
 
@@ -186,60 +219,10 @@ func (self *Redi) Execute(tokens []string) (string,error) {
 }
 
 // public
-// [0] create, [1] delete, [2] others
-func (self *Redi) Diff() ([3]Snapshot, error) {
+func (self *Redi) Collect() (model.Snapshot, error) {
 
-	var ret [3]Snapshot
-
-	// update new
-	new := make(Snapshot, 0)
-	err := self.collect(&new)
-
-	if err != nil {
-		return ret, err
-	}
-
-	old := self.snapshot.Copy()
-	/*
-	log.Println("old snapshot")
-	old.Debug()
-	*/
-	// update old
-	self.snapshot = new.Copy()
-	/*
-	log.Println("new snapshot")
-	new.Debug()
-	*/
-	// loop create, keep
-	cnt := 0
-	for index, pair := range self.snapshot {
-
-		// create pair
-		if !old.Contains(pair) {
-			ret[0] = append(ret[0], pair)
-
-			// keep others, delete cnt ++
-			new = slices.Delete(new, index-cnt, index-cnt+1)
-			cnt++
-		}
-	}
-
-	for _, pair := range old {
-
-		// delete pair
-		if !self.snapshot.Contains(pair) {
-			ret[1] = append(ret[1], pair)
-		}
-	}
-
-	ret[2] = new
-
-	return ret, nil
-
-}
-
-// private
-func (self *Redi) collect(snapshot *Snapshot) error {
+	// snapshot
+	snapshot := make(model.Snapshot, 0)
 
 	keys, _ := self.client.Keys(self.ctx, "*").Result()
 
@@ -253,20 +236,15 @@ func (self *Redi) collect(snapshot *Snapshot) error {
 	// keys
 	for _, key := range keys {
 
-		var pair RediPair
-		pair.Key = key
-		pair.Field = ""
-		*snapshot = append(*snapshot, pair)
-
 		keyType, err := self.client.Type(self.ctx, key).Result()
 
 		// Type failed
 		if err != nil {
-			return errors.New("TYPE key failed.")
+			return nil, errors.New("TYPE key failed.")
 		}
 
 		// func map
-		fmap := map[string]func(string, *Snapshot) error{
+		fmap := map[string]func(string, *model.Snapshot) error{
 			"hash": self.collectHash,
 			// "geo" : collect geo,
 			"stream": self.collectStream,
@@ -276,20 +254,21 @@ func (self *Redi) collect(snapshot *Snapshot) error {
 
 		f, ok := fmap[keyType]
 		if ok {
-			err := f(key, snapshot)
+			err := f(key, &snapshot)
 
 			// failed
 			if err != nil {
-				return err
+				return nil, err
 			}
 		}
 
 	}
-	return nil
 
+	return snapshot, nil
 }
 
-func (self *Redi) collectHash(key string, snapshot *Snapshot) error {
+// private
+func (self *Redi) collectHash(key string, snapshot *model.Snapshot) error {
 
 	fields, err := self.client.HKeys(self.ctx, key).Result()
 
@@ -298,18 +277,33 @@ func (self *Redi) collectHash(key string, snapshot *Snapshot) error {
 		return errors.New("collect hash failed.")
 	}
 
+	keyToken := model.Token{
+		Level : model.TOKEN_LEVEL_1,
+		Text : key,
+	}
+
+	_, ok := (*snapshot)[keyToken]
+
+	if !ok {
+		(*snapshot)[keyToken] = make([]model.Token, 0)
+	}
+
 	for _, field := range fields {
-		var pair RediPair
-		pair.Key = key
-		pair.Field = field
-		*snapshot = append(*snapshot, pair)
+
+		fieldToken := model.Token{
+			Level : model.TOKEN_LEVEL_2,
+			Text : field,
+		}
+
+		(*snapshot)[keyToken] =append((*snapshot)[keyToken], fieldToken)
 	}
 
 	return nil
 
 }
 
-func (self *Redi) collectStream(key string, snapshot *Snapshot) error {
+// private
+func (self *Redi) collectStream(key string, snapshot *model.Snapshot) error {
 
 	entries, err := self.client.XRange(self.ctx, key, "-", "+").Result()
 
@@ -317,12 +311,27 @@ func (self *Redi) collectStream(key string, snapshot *Snapshot) error {
 		return errors.New("collect stream failed.")
 	}
 
+	keyToken := model.Token{
+		Level : model.TOKEN_LEVEL_1,
+		Text : key,
+	}
+
+	_, ok := (*snapshot)[keyToken]
+
+	if !ok {
+		(*snapshot)[keyToken] = make([]model.Token, 0)
+	}
+
 	for _, entry := range entries {
+
 		for field := range entry.Values {
-			var pair RediPair
-			pair.Key = key
-			pair.Field = field
-			*snapshot = append(*snapshot, pair)
+
+			fieldToken := model.Token{
+				Level : model.TOKEN_LEVEL_2,
+				Text : field,
+			}
+	
+			(*snapshot)[keyToken] =append((*snapshot)[keyToken], fieldToken)
 		}
 	}
 
@@ -330,59 +339,19 @@ func (self *Redi) collectStream(key string, snapshot *Snapshot) error {
 }
 
 // public
-func (self *Snapshot) Contains(pair RediPair) bool {
+func (self *Redi) Stderr() string {
 
-	isContains := false
-	for _, p := range *self {
-
-		// contains key, field
-		if p.Key == pair.Key && p.Field == pair.Field {
-			isContains = true
-			break
-		}
-	}
-	return isContains
-
+	return self.stderr.String()
 }
 
 // public
-func (self *Snapshot) Copy() Snapshot {
+func (self *Redi) Debug() {
 
-	new := make(Snapshot, 0)
-	for _, pair := range *self {
-		new = append(new, pair)
-	}
-	return new
-
+	log.Println("==== Redi ====")
+	log.Printf("path: %s\n", self.path)
+	log.Printf("args: %v\n", self.args)
 }
 
-// debug
-func (self *Snapshot) Debug() {
 
-	for _, pair := range *self {
-		k := pair.Key
-		f := pair.Field
-		log.Println("key", k, "size", len(k), " -> ", "field", f, "size", len(f))
-	}
-}
-
-// debug
-func DiffDebug(snapshots [3]Snapshot) {
-
-	if len(snapshots[0]) > 0 {
-		log.Println("create snapshot")
-		snapshots[0].Debug()
-	}
-
-	if len(snapshots[1]) > 0 {
-		log.Println("delete snapshot")
-		snapshots[1].Debug()
-	}
-
-	if len(snapshots[2]) > 0 {
-		log.Println("keep snapshot")
-		snapshots[2].Debug()
-	}
-}
 
 

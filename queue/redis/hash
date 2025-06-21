@@ -1,0 +1,40 @@
+HSET myhash field2 "value2" field3 "value3"
+HGETALL myhash  
+HSET myhash field1 "new_value"
+HGET myhash field1  
+HSETNX myhash field4 "value4"  
+HDEL myhash field4  
+HEXISTS myhash field2
+HMGET myhash field1 field2 field3
+HKEYS myhash  
+HVALS myhash  
+HLEN myhash  
+HSET myhash num 5
+HINCRBY myhash num 3     
+HINCRBY myhash new_num 10 
+HSET myhash float 10.5
+HINCRBYFLOAT myhash float -5.5  
+HEXPIRE myhash 60 FIELDS 1 field1  
+HTTL myhash FIELDS 1 field1       
+HEXPIREAT myhash 99 FIELDS 1 field2  
+HTTL myhash FIELDS 1 field2      
+HPERSIST myhash FIELDS 1 field1    
+HTTL myhash FIELDS 1 field1       
+HSET myhash field3 "value3"
+HEXPIRE myhash 30 NX FIELDS 1 field3  
+HEXPIRE myhash 20 XX FIELDS 1 field3  
+HLEN myhash                    -
+HGETEX myhash EX 60 FIELDS 1 field1  
+HTTL myhash FIELDS 1 field1        
+HSET myhash str "hello world"
+HSTRLEN myhash str 
+HPEXPIRE myhash 1000 FIELDS 1 field1  
+HPTTL myhash FIELDS 1 field1          
+HPEXPIREAT myhash 1715704971000 FIELDS 1 field2  
+HPEXPIRETIME myhash FIELDS 1 field2          
+HPTTL myhash FIELDS 2 field1 field99  
+HRANDFIELD myhash 
+HRANDFIELD myhash WITHVALUES  
+HRANDFIELD myhash 5 
+HSCAN myhash 0 MATCH "field*" COUNT 10  
+HSCAN myhash 0 NOVALUES

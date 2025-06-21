@@ -1,4 +1,4 @@
-package fuxx
+package utils
 
 import (
 	"strings"
@@ -16,16 +16,16 @@ const (
 
 // interesting strings
 var	InterestingStr = []string {
-	"", 					 // empty
+	"\"\"", 			     // empty
 	"\x00",					 // null
 	"\r",					 // terminal
 	"\xff\xfe",				 // hex
-	"\";+-*>([",			 // special
+	" ;+-*>([",			     // special
 	strings.Repeat("a", 4097), // long str
 }
 
-// interesting nums
-var InterestingNum = []string {
+// interesting values
+var InterestingValue = []string {
 	"-128",
 	"-1",
 	"-0",
@@ -46,9 +46,6 @@ var InterestingNum = []string {
 	"0.0000000000000001",
 	"-3.14",
 	"3.14",
-	"-inf",
-	"+inf",
-	"nan",
 }
 
 

@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/fuxxcss/redi2fuxx/cmd"
+	"github.com/fuxxcss/redi2fuzz/cmd"
 )
 
 func main() {

@@ -1,4 +1,4 @@
-module github.com/fuxxcss/redi2fuxx
+module github.com/fuxxcss/redi2fuzz
 
 go 1.23.1
 

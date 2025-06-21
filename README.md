@@ -1,4 +1,4 @@
-# Redi2Fuxx
+# Redi2Fuzz
 * [What is it ?](#introduction)
 * [Prepare DBMS](#prepare-targets)
    * [Redis](#redis)
@@ -30,7 +30,7 @@ instrument redis-server,if you dont have afl-clang-lto,look up here [afl-clang-l
 because jemalloc/tcmalloc have collision with ASAN, so 'MALLOC=libc' is needed.
 ``` shell
 > cd /usr/local/redis
-> AFL_USE_ASAN=1 CC=afl-clang-lto make MALLOC=libc -j4
+> make MALLOC=libc CFLAGS="-fsanitize=address -fno-omit-frame-pointer -g" CXXFLAGS="-fsanitize=address -fno-omit-frame-pointer -g" LDFLAGS="-fsanitize=address" -j4
 ```
 
 ### keydb
@@ -143,31 +143,41 @@ in order to use afl-gxx-fast, for example, your gcc version is 12 and gcc-12-plu
 > make && make install
 ```
 
+## analyze
+
+remove dump.rdb first.
+
+``` shell
+ln -s /opt/redis-7.0.8 /usr/local/redis
+```
+
 ## fuzz
 
-redi2fuxx useage :
+remove dump.rdb first.
+
+redi2fuzz useage :
 ``` shell
 root@debian: r2f -h
-A fuxxing tool for redis-based dbms with three mutation modes.
+A fuzzing tool for redis-based dbms with three mutation modes.
 
 Usage:
-  redi2fuxx [command]
+  redi2fuzz [command]
 
 Available Commands:
   analyze     Analyze Bugs.
   completion  Generate the autocompletion script for the specified shell
-  fuxx        Ready to Fuxx.
+  fuzz        Ready to Fuzz.
   help        Help about any command
 
 Flags:
-  -h, --help            help for redi2fuxx
-  -t, --target string   Fuxx Target (redis, keydb, redis-stack) (default "redis")
-  -T, --tool string     Fuxx Base (afl, honggfuzz) (default "afl")
+  -h, --help            help for redi2fuzz
+  -t, --target string   Fuzz Target (redis, keydb, redis-stack) (default "redis")
+  -T, --tool string     Fuzz Base (afl, honggfuzz) (default "afl")
 
-Use "redi2fuxx [command] --help" for more information about a command.
+Use "redi2fuzz [command] --help" for more information about a command.
 ```
 
-fuxx different redis (maybe need to trash /root/dump.rdb first) : 
+fuzz different redis (maybe need to trash /root/dump.rdb first) : 
 ``` shell
 ...
 ```

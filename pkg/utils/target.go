@@ -1,51 +1,57 @@
 package utils
 
 // traget state
+type TargetState int
 const (
-	STATE_LEN int = 3
-	STATE_OK  string = "okk"
-	STATE_BAD string = "bad"
-	STATE_ERR string = "err"
+	STATE_OK  TargetState = iota
+	STATE_ERR
+	STATE_CRASH
 )
 
-// fuxx targets
+// fuzz targets
+type TargetType int
 const (
-	Redis string = "redis"
-	KeyDB string = "keydb"
-	RediStack string = "redis-stack"
+	// Redi
+	REDI_REDIS TargetType = iota
+	REDI_KEYDB 
+	REDI_STACK
+	// TS
+	TS_IOTDB
 )
 
-// target features
-type TargetFeature int
+// target feature type
+type TargetFeatureType int
 
 const (
-	TARGET_PORT TargetFeature = iota
+	TARGET_PORT TargetFeatureType = iota
 	TARGET_PATH
 	QUEUE_PATH
 )
 
-type TargetsType map[TargetFeature]string
+type TargetFeature map[TargetFeatureType]string
 
-var Targets = map[string]TargetsType {
+var Targets = map[TargetType]TargetFeature {
 	// Redis
-	Redis : {
+	REDI_REDIS : {
 		TARGET_PORT : "6379",
 		TARGET_PATH : "/usr/local/redis/src/redis-server",
 		QUEUE_PATH : "queue/redis",
 	},
 	// KeyDB
-	KeyDB : {
+	REDI_KEYDB : {
 		TARGET_PORT : "6380",
 		TARGET_PATH : "/usr/local/keydb/src/keydb-server",
 		QUEUE_PATH : "queue/redis",
 	},
 	// RediStack
-	RediStack : {
+	REDI_STACK : {
 		TARGET_PORT : "6381",
 		TARGET_PATH : "/usr/local/redis/src/redis-stack-server",
 		QUEUE_PATH : "queue/redis-stack",
 	},
 }
+
+
 
 
 

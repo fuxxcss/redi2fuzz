@@ -1,201 +1,331 @@
-![](https://github.com/fuxxcss/sofa/blob/main/docs/sofa.png)
---
+# SUT Core - 漏洞赏金挖掘框架核心架构
 
-* [What is it ?](#introduction)
-* [Prepare DBMS](#prepare-targets)
-   * [Redis](#redis)
-   * [KeyDB](#keydb)
-   * [Valkey](#valkey)
-   * [Redis Stack](#redis-stack)
-* [How to Install ?](#install)
-* [How to Use ?](#fuzz)
-* [ToDo](#todo)
+基于README.md中定义的架构实现的原型系统核心组件。
 
-## introduction
-This is a fuzzing Project for redis-based Database Management System.
-Target DBMS:
-``` shell
-1. Redis (key-value)
-2. KeyDB (key-value)
-3. Redis Stack (Multi-model)
-4. (...)
-```
-
-## prepare targets
-
-### redis
-redis fuzz required:
-- instrument redis (disable shared)
-- go-redis
-
-instrument redis-server,if you dont have afl-clang-lto,look up here [afl-clang-lto](#afl-clang-lto).
-because jemalloc/tcmalloc have collision with ASAN, so 'MALLOC=libc' is needed.
-``` shell
-> cd /usr/local/redis
-> make MALLOC=libc CFLAGS="-fsanitize=address -fno-omit-frame-pointer -g" CXXFLAGS="-fsanitize=address -fno-omit-frame-pointer -g" LDFLAGS="-fsanitize=address" -j4
-```
-
-### keydb
-keydb fuzz required:
-- instrument keydb (disable shared)
-- go-redis
-
-instrument keydb-server.
-``` shell
-> aptitude install libcurl4-openssl-dev
-> cd /usr/local/keydb
-> AFL_USE_ASAN=1 CC=afl-clang-lto CXX=afl-clang-lto++ make MALLOC=libc -j4
-```
-
-### valkey
-valkey fuzz required:
-- instrument valkey (disable shared)
-- go-redis
-
-instrument valkey-server.
-``` shell
-> cd /usr/local/valkey
-> AFL_USE_ASAN=1 CC=afl-clang-lto CXX=afl-clang-lto++ make MALLOC=libc -j4
-```
-
-### redis-stack
-redis stack fuzz required:
-- instrument redis (disable shared)
-- go-redis
-- redis-stack-server
-
-Download redis-stack-server from [redis stack server](https://redis.io/downloads/#redis-stack-downloads). Copy redis-stack-server 、etc and lib into /usr/local/redis/src/.
-add
-``` shell
-REDIS_DATA_DIR=/usr/local/redis/src/redis-stack
-echo "Starting redis-stack-server, database path ${REDIS_DATA_DIR}"
-CMD=/usr/local/redis/src/redis-server
-CONFFILE=/usr/local/redis/src/etc/redis-stack.conf
-MODULEDIR=/usr/local/redis/src/lib
-```
-before
-``` shell
-${CMD} \
-${CONFFILE} \
---dir ${REDIS_DATA_DIR} \
-...
-```
-activate redis stack :
-``` shell
-> mkdir redis-stack
-> chmod +x ./redis-stack-server
-```
-
-## prepare testcases
-
-The key point : ensuring that the initial testcases are grammatically and semantically correct.
-
-initial testcases from [redis commands](https://redis.io/docs/latest/commands/) and DeepSeek/DouBao.
-
-keydb and valkey is fork of redis,so we reuse input/redis.
-
-## install
-
-### go build
-please do thease after dbms init.
-``` shell
-> go install -buildmode=shared -linkshared std
-> ./install.sh
-```
-
-### afl build
-in order to use shmem for afl-fuzz, dbms server.<br>
-rewrite afl-sharedmem.c afl_shm_init()
-``` c
-char *id_str = getenv("COVERAGE_MAP");
-if (id_str) {
-  shm->shm_id = atoi(id_str);
-}else {
-  shm->shm_id =
-    shmget(IPC_PRIVATE, map_size == MAP_SIZE ? map_size + 8 : map_size,
-           IPC_CREAT | IPC_EXCL | DEFAULT_PERMISSION);
-}
-```
-add 
-``` c
-setvbuf(stdout,NULL,_IOLBF,0);
-setvbuf(stderr,NULL,_IOLBF,0);
-```
-delete !afl->afl_env.afl_skip_bin_check
-```c
-if (!afl->non_instrumented_mode && !afl->fsrv.qemu_mode &&
-      !afl->unicorn_mode && !afl->fsrv.frida_mode && !afl->fsrv.cs_mode &&
-      !afl->afl_env.afl_skip_bin_check) {
-to
-if (!afl->non_instrumented_mode && !afl->fsrv.qemu_mode &&
-      !afl->unicorn_mode && !afl->fsrv.frida_mode && !afl->fsrv.cs_mode) {
+## 架构概览
 
 ```
-in afl-fuzz.c main()
-
-#### afl-clang-lto
-in order to use afl-clang-lto, for example, your llvm version is 16 and lld-16 was installed.
-``` shell
-> export LLVM_CONFIG=llvm-config-16
-> make && make install
-```
-#### afl-gxx-fast
-in order to use afl-gxx-fast, for example, your gcc version is 12 and gcc-12-plugin-dev was installed.
-``` shell
-> make && make install
-```
-
-## analyze
-
-remove dump.rdb first.
-
-``` shell
-ln -s /opt/redis-7.0.8 /usr/local/redis
+SUT Core
+├── interfaces.py          # 核心接口定义
+│   ├── IPlugin           # 插件接口基类
+│   ├── IPluginManager    # 插件管理器接口
+│   ├── IScheduler        # 调度器接口
+│   ├── IMonitor          # 监控器接口
+│   └── IOrchestrator     # 协调器接口
+├── plugin_manager.py      # 插件管理器实现
+├── scheduler.py           # 任务调度器实现
+├── monitor.py             # 监控器实现
+├── orchestrator.py        # 协调器实现
+├── base_plugin.py         # 基础插件类
+└── tests/                 # 架构测试
 ```
 
-## fuzz
+## 核心组件说明
 
-remove dump.rdb first.
+### 1. Plugin Manager (插件管理器)
 
-redi2fuzz useage :
-``` shell
-root@debian: r2f -h
-A fuzzing tool for redis-based dbms with three mutation modes.
+**职责**: 负责插件的加载、注册、配置和生命周期管理
 
-Usage:
-  redi2fuzz [command]
+**主要功能**:
+- 动态加载插件（从文件或模块）
+- 插件注册和注销
+- 批量加载插件目录
+- 插件配置管理
+- 插件生命周期管理（初始化、清理）
+- 插件启用/禁用控制
 
-Available Commands:
-  analyze     Analyze Bugs.
-  completion  Generate the autocompletion script for the specified shell
-  fuzz        Ready to Fuzz.
-  help        Help about any command
-
-Flags:
-  -h, --help            help for redi2fuzz
-  -t, --target string   Fuzz Target (redis, keydb, redis-stack) (default "redis")
-  -T, --tool string     Fuzz Base (afl, honggfuzz) (default "afl")
-
-Use "redi2fuzz [command] --help" for more information about a command.
+**关键方法**:
+```python
+async def load_plugin(self, plugin_path: str) -> Optional[IPlugin]
+def register_plugin(self, plugin: IPlugin) -> bool
+def get_plugin(self, name: str) -> Optional[IPlugin]
+async def initialize_all(self, configs: Dict[str, Dict])
+async def cleanup_all(self)
 ```
 
-fuzz different redis (maybe need to trash /root/dump.rdb first) : 
-``` shell
-...
+### 2. Scheduler (调度器)
+
+**职责**: 负责任务的调度、执行和状态管理
+
+**主要功能**:
+- 优先级任务队列（基于堆实现）
+- 并发任务执行（可配置工作线程数）
+- 任务状态跟踪
+- 任务超时处理
+- 任务取消
+- 事件回调机制
+- 统计信息收集
+
+**关键方法**:
+```python
+async def submit_task(self, task: Task, plugin: IPlugin) -> str
+async def cancel_task(self, task_id: str) -> bool
+def get_task(self, task_id: str) -> Optional[Task]
+async def wait_for_completion(self, task_ids: List[str], timeout: float) -> bool
 ```
 
-## ToDo
-1. fix testcase length bug.
-2. learn from Redis CVEs.
-``` shell
-// use aflpp-havoc to mutate integer argument, identifier
-[CVE-2024-51737] RediSearch – Integer Overflow with LIMIT or KNN Arguments Lead to RCE
-[CVE-2024-51480] RedisTimeSeries –  Integer Overflow RCE
-[CVE-2024-55656] RedisBloom –  Integer Overflow RCE
+### 3. Monitor (监控器)
+
+**职责**: 负责系统状态监控、指标收集和事件记录
+
+**主要功能**:
+- 任务生命周期事件记录
+- 漏洞收集和分类
+- 实时监控指标
+- 报告生成（JSON格式）
+- 时间线记录
+- 事件回调通知
+
+**关键方法**:
+```python
+def record_task_created(self, task: Task)
+def record_vulnerability(self, vuln: Vulnerability)
+def get_metrics(self) -> Dict[str, Any]
+def generate_report(self, output_file: Optional[str]) -> str
 ```
-3. analysis bugs
 
-4. fix
+### 4. Orchestrator (协调器)
 
-- queue ERR
+**职责**: 统一管理系统组件，提供高层API
 
+**主要功能**:
+- 组件初始化和启动
+- 扫描任务管理
+- 组件间协调
+- 状态查询
+- 报告生成
+- 单例模式支持
+
+**关键方法**:
+```python
+async def initialize(self)
+async def start(self)
+async def stop(self)
+async def scan(self, config: ScanConfig) -> List[str]
+async def scan_and_wait(self, config: ScanConfig, timeout: float) -> Dict
+```
+
+## 数据模型
+
+### Task (任务)
+```python
+@dataclass
+class Task:
+    id: str                    # 任务ID
+    name: str                  # 任务名称
+    plugin_name: str          # 执行插件
+    target: str               # 检测目标
+    status: TaskStatus        # 任务状态
+    priority: int             # 优先级(1-10)
+    created_at: datetime      # 创建时间
+    started_at: datetime      # 开始时间
+    completed_at: datetime    # 完成时间
+    timeout: int              # 超时时间
+    result: Dict              # 执行结果
+    error: str                # 错误信息
+    metadata: Dict            # 元数据
+```
+
+### Vulnerability (漏洞)
+```python
+@dataclass
+class Vulnerability:
+    id: str                   # 漏洞ID
+    task_id: str             # 关联任务ID
+    severity: Severity       # 严重程度
+    title: str               # 标题
+    description: str         # 描述
+    target: str              # 目标
+    plugin_name: str         # 发现插件
+    evidence: Dict           # 证据
+    remediation: str         # 修复建议
+    references: List[str]    # 参考链接
+    timestamp: datetime      # 发现时间
+    verified: bool           # 是否已验证
+```
+
+### PluginInfo (插件信息)
+```python
+@dataclass
+class PluginInfo:
+    name: str                # 插件名称
+    version: str             # 版本
+    description: str         # 描述
+    author: str              # 作者
+    plugin_type: str         # 类型
+    dependencies: List[str]  # 依赖
+    config_schema: Dict      # 配置模式
+    enabled: bool            # 是否启用
+    status: PluginStatus     # 状态
+```
+
+## 使用示例
+
+### 基础用法
+
+```python
+import asyncio
+from sofa_core import (
+    Orchestrator, get_orchestrator, reset_orchestrator,
+    BasePlugin, Task, Severity, ScanConfig
+)
+
+# 定义自定义插件
+class MyPlugin(BasePlugin):
+    def __init__(self):
+        super().__init__("my_plugin", "1.0.0")
+        self.set_plugin_info(
+            description="My custom plugin",
+            plugin_type="custom"
+        )
+    
+    async def _do_execute(self, task):
+        # 实现检测逻辑
+        vuln = self.create_vulnerability(
+            task=task,
+            severity=Severity.HIGH,
+            title="Critical Issue",
+            description="Found critical vulnerability"
+        )
+        return {
+            'findings': [vuln],
+            'findings_count': 1
+        }
+
+async def main():
+    # 重置单例（首次使用可省略）
+    reset_orchestrator()
+    
+    # 获取协调器
+    config = {
+        "scheduler": {"max_workers": 5},
+        "plugins": {}
+    }
+    orch = get_orchestrator(config)
+    
+    # 注册插件
+    orch.register_plugin(MyPlugin())
+    
+    # 初始化并启动
+    await orch.initialize()
+    await orch.start()
+    
+    # 执行扫描
+    scan_config = ScanConfig(
+        target="https://example.com",
+        plugins=["my_plugin"],
+        max_workers=5
+    )
+    
+    result = await orch.scan_and_wait(scan_config, timeout=60)
+    print(f"Completed: {result['tasks_completed']}")
+    print(f"Vulnerabilities: {result['vulnerabilities']}")
+    
+    # 生成报告
+    report = orch.generate_report("report.json")
+    
+    # 停止系统
+    await orch.stop()
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+### 直接使用组件
+
+```python
+from sofa_core import (
+    PluginManager, Scheduler, Monitor,
+    BasePlugin, Task
+)
+
+# 独立使用插件管理器
+pm = PluginManager()
+plugin = MyPlugin()
+pm.register_plugin(plugin)
+await pm.initialize_all({"my_plugin": {}})
+
+# 独立使用调度器
+scheduler = Scheduler(max_workers=3)
+await scheduler.start()
+task_id = await scheduler.submit_task(task, plugin)
+await scheduler.wait_for_completion([task_id])
+await scheduler.stop()
+
+# 独立使用监控器
+monitor = Monitor()
+monitor.record_task_created(task)
+monitor.record_vulnerability(vuln)
+metrics = monitor.get_metrics()
+```
+
+## 扩展开发
+
+### 创建自定义插件
+
+继承`BasePlugin`类并实现`_do_execute`方法：
+
+```python
+from sofa_core import BasePlugin, Task, Severity
+
+class CustomPlugin(BasePlugin):
+    def __init__(self):
+        super().__init__("custom", "1.0.0")
+        self.set_plugin_info(
+            description="Custom detection plugin",
+            plugin_type="custom"
+        )
+    
+    async def _do_execute(self, task: Task) -> Dict:
+        # 实现检测逻辑
+        findings = []
+        
+        # 检测代码...
+        if self._detect_issue(task.target):
+            vuln = self.create_vulnerability(
+                task=task,
+                severity=Severity.HIGH,
+                title="Issue Found",
+                description="Detailed description",
+                evidence={"key": "value"}
+            )
+            findings.append(vuln)
+        
+        return {
+            'findings': findings,
+            'findings_count': len(findings)
+        }
+    
+    def _detect_issue(self, target: str) -> bool:
+        # 具体检测逻辑
+        pass
+```
+
+## 架构特点
+
+1. **接口驱动**: 所有核心组件都基于接口定义，便于替换实现
+2. **模块化**: 组件间松耦合，可独立使用
+3. **异步支持**: 全面支持async/await，高效处理并发
+4. **可扩展**: 插件架构支持动态扩展检测能力
+5. **类型安全**: 完整的类型注解支持
+6. **事件驱动**: 支持事件回调和监控
+7. **配置灵活**: 支持多种配置方式
+
+## 运行测试
+
+```bash
+python sofa_core/tests/test_architecture.py
+```
+
+## 与原始架构对比
+
+本实现严格遵循README.md中的架构设计：
+
+- ✅ Orchestrator - 统一协调器
+- ✅ Plugin Manager - 插件管理器
+- ✅ Scheduler - 任务调度器
+- ✅ Monitor - 系统监控
+- ✅ IPlugin接口 - 插件基类
+- ✅ 支持多种插件类型（通过继承实现）
+
+架构设计强调**先实现核心管理组件，再实现具体插件**，确保系统的灵活性和可扩展性。

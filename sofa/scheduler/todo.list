@@ -1,0 +1,15 @@
+# Scheduler Prototype → Usable → Robust
+## Phase 0: Prototype (DONE)
+- [x] Implements IScheduler with priority queue & async workers
+- [x] Handles task lifecycle (PENDING→RUNNING→COMPLETED/FAILED)
+- [x] Error logging and stats collection
+
+## Phase 1: Usable
+- [x] Support input-level batching: submit_batch(plugin, inputs)
+- [x] Add task cancellation for RUNNING tasks (via plugin cooperative timeout)
+- [x] Integrate with Monitor for vulnerability recording
+
+## Phase 2: Robust
+- [ ] Distributed scheduling support (e.g., via Redis queue)
+- [ ] Resource-aware scheduling (CPU/memory limits)
+- [ ] Task dependency graph (e.g., Parser → Checker → Verifier chain)

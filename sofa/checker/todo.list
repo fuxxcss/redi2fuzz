@@ -1,0 +1,14 @@
+# Checker Component Prototype → Usable → Robust
+## Phase 0: Prototype (DONE)
+- [x] DummyCheckerPlugin implements IPlugin with input_types=["cpg"], output_types=["vulnerability"]
+- [x] Returns stub vulnerabilities for validation
+
+## Phase 1: Usable
+- [x] Implement RuleBasedChecker (loads YAML rules, matches on CPG)
+- [ ] Add dataflow analysis stub (e.g., track null pointer propagation)
+- [x] Integrate with Scheduler via submit_task(task, plugin)
+
+## Phase 2: Robust
+- [ ] Symbolic execution integration (e.g., via angr/CodeQL backend)
+- [ ] Cross-function analysis and taint tracking
+- [ ] False positive reduction via confidence scoring

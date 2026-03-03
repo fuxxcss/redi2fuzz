@@ -1,0 +1,16 @@
+# Verifier Component Prototype → Usable → Robust
+## Phase 0: Prototype (DONE)
+- [x] Verifier will be implemented as IPlugin subclass (VerifierPlugin)
+- [ ] No verifier plugins implemented yet — this directory will host:
+    - VerifierPlugin subclasses (e.g., FuzzingVerifier, ReproduceVerifier)
+    - Each must declare: input_types=["vulnerability"], output_types=["verified_vulnerability"]
+
+## Phase 1: Usable
+- [x] Implement ReproduceVerifier (calls reproduce.py with PoC)
+- [ ] Add basic fuzzing verification stub (e.g., run input → check crash)
+- [x] Integrate with Scheduler for async verification tasks
+
+## Phase 2: Robust
+- [ ] GDB/QEMU integration for deep debugging
+- [ ] Proof-of-concept generation (C/Python PoC from vulnerability evidence)
+- [ ] Confidence scoring and false-positive filtering
